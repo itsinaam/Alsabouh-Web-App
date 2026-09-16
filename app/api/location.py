@@ -16,7 +16,7 @@ from app.schema.location import (
 from app.utils.constants import UserRole
 from app.utils.security import get_current_user, require_roles
 
-router = APIRouter(prefix="/locations", tags=["Locations"])
+router = APIRouter(prefix="/location", tags=["Location"])
 
 
 @router.post("",response_model=HubResponse,status_code=status.HTTP_201_CREATED,summary="Create a new Location / Hub (Admin & Store Manager)")
