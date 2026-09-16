@@ -19,11 +19,11 @@ from app.utils.security import get_current_user, require_roles
 router = APIRouter(prefix="/location", tags=["Location"])
 
 
-@router.post("",response_model=HubResponse,status_code=status.HTTP_201_CREATED,summary="Create a new Location / Hub (Admin & Store Manager)")
+@router.post("",response_model=HubResponse,status_code=status.HTTP_201_CREATED,summary="Create Location  (Admin Only)")
 def create_hub(
     hub_in: HubCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
+    current_user: User = Depends(require_roles([UserRole.ADMIN])),
 ):
     """
     Creates a new operational Hub / Location.
@@ -35,7 +35,7 @@ def create_hub(
     db.refresh(hub)
     return hub
 
-@router.get("",response_model=HubListResponse,summary="List Locations with search, filters, pagination, and KPI metrics")
+@router.get("",response_model=HubListResponse,summary="List Locations with search, filters, pagination, and KPI metrics (Admin Only")
 def list_hubs(
     search: Optional[str] = Query(None, description="Search across name, emirate, address, plot, or notes"),
     emirate: Optional[str] = Query(None, description="Filter by emirate jurisdiction"),
