@@ -1,4 +1,12 @@
 from app.schema.auth import LoginRequest, TokenResponse, UserCreate, UserResponse
+from app.schema.location import (
+    HubBase,
+    HubCreate,
+    HubDropdownResponse,
+    HubListResponse,
+    HubResponse,
+    HubUpdate,
+)
 from app.schema.users import (
     DriverRegisterRequest,
     DriverResponse,
@@ -14,6 +22,13 @@ __all__ = [
     "TokenResponse",
     "UserCreate",
     "UserResponse",
+    "HubBase",
+    "HubCreate",
+    "HubUpdate",
+    "HubResponse",
+    "HubListResponse",
+    "HubDropdownResponse",
+
     "DriverRegisterRequest",
     "DriverResponse",
     "DriverUpdate",
@@ -22,3 +37,4 @@ __all__ = [
     "StoreManagerUpdate",
     "UserDetailResponse",
 ]
+
