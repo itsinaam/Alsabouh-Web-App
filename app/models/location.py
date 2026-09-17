@@ -6,8 +6,8 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
 
 
-class Hub(Base):
-    __tablename__ = "hubs"
+class Location(Base):
+    __tablename__ = "location"
 
 
     id: Mapped[int] = mapped_column(primary_key=True,index=True,autoincrement=True)

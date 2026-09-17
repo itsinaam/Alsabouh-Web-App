@@ -1,4 +1,4 @@
 from app.models.auth import User
-from app.models.location import Hub
+from app.models.location import Location
 
-__all__ = ["User", "Hub"]
+__all__ = ["User", "Location"]

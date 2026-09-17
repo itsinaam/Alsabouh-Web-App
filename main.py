@@ -1,6 +1,7 @@
 from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.utils import get_openapi
 from app.api.api_router import api_router
 from app.config.settings import settings
 from app.db.init_db import init_db
@@ -39,6 +40,35 @@ app.add_middleware(
 
 # Register API routes
 app.include_router(api_router)
+
+
+def custom_openapi():
+    if app.openapi_schema:
+        return app.openapi_schema
+
+    schema = get_openapi(
+        title=app.title,
+        version=app.version,
+        description=app.description,
+        routes=app.routes,
+    )
+    schemas = schema.get("components", {}).get("schemas", {}).values()
+    for request_schema in schemas:
+        upload_field = request_schema.get("properties", {}).get(
+            "mulkiya_inspection_documents"
+        )
+        if upload_field:
+            for variant in upload_field.get("anyOf", []):
+                items = variant.get("items")
+                if isinstance(items, dict) and items.get("type") == "string":
+                    items["format"] = "binary"
+                    items.pop("contentMediaType", None)
+
+    app.openapi_schema = schema
+    return app.openapi_schema
+
+
+app.openapi = custom_openapi
 
 
 @app.get("/", tags=["Health"])
