@@ -11,7 +11,13 @@ from app.db.session import get_db
 from app.models.auth import User
 from app.models.location import Location
 from app.models.vehicle import Vehicle
-from app.schema.vehicle import VehicleCreate, VehicleListResponse, VehicleResponse, VehicleUpdate
+from app.schema.vehicle import (
+	VehicleCreate,
+	VehicleDriverResponse,
+	VehicleListResponse,
+	VehicleResponse,
+	VehicleUpdate,
+)
 from app.services.storage import storage_service
 from app.utils.constants import UserRole
 from app.utils.security import require_roles
@@ -114,7 +120,21 @@ def list_vehicles(
 		query = query.filter(Vehicle.status.ilike(status_filter.strip()))
 	total = query.count()
 	items = query.order_by(Vehicle.id.desc()).offset(skip).limit(limit).all()
-	return {"total": total, "skip": skip, "limit": limit, "counts": counts, "items": items}
+	driver_ids = {vehicle.designated_primary_driver for vehicle in items if vehicle.designated_primary_driver}
+	drivers = {
+		driver.id: VehicleDriverResponse.model_validate(driver)
+		for driver in db.query(User).filter(User.id.in_(driver_ids)).all()
+	} if driver_ids else {}
+	return {
+		"total": total,
+		"skip": skip,
+		"limit": limit,
+		"counts": counts,
+		"items": [
+			{**vehicle.__dict__, "driver": drivers.get(vehicle.designated_primary_driver)}
+			for vehicle in items
+		],
+	}
 
 
 @router.get("/{vehicle_id}", response_model=VehicleResponse, summary="Get vehicle")
@@ -126,7 +146,12 @@ def get_vehicle(
 	vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 	if not vehicle:
 		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
-	return vehicle
+	driver = None
+	if vehicle.designated_primary_driver:
+		driver_record = db.query(User).filter(User.id == vehicle.designated_primary_driver).first()
+		if driver_record:
+			driver = VehicleDriverResponse.model_validate(driver_record)
+	return {**vehicle.__dict__, "driver": driver}
 
 
 @router.patch("/{vehicle_id}", response_model=VehicleResponse, summary="Update vehicle")

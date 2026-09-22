@@ -1,10 +1,12 @@
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 import csv
 import io
 import json
+import mimetypes
+import uuid
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -12,6 +14,7 @@ from app.db.session import get_db
 from app.models.auth import User
 from app.models.gdn import GDN
 from app.schema.gdn import GDNCreate, GDNListResponse, GDNResponse, GDNStats, GDNUpdate
+from app.services.storage import storage_service
 from app.utils.constants import UserRole
 from app.utils.security import require_roles
 
@@ -28,6 +31,49 @@ def _commit_gdn(db: Session, gdn: GDN, duplicate_message: str = "GDN reference a
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=duplicate_message)
+
+
+async def _upload_image_groups(
+    image_groups_json: Optional[str],
+    images: Optional[list[UploadFile]],
+    gdn_reference: str,
+) -> list[dict[str, object]]:
+    if not image_groups_json:
+        return []
+    try:
+        groups = json.loads(image_groups_json)
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail="image_groups must be valid JSON") from exc
+    if not isinstance(groups, list):
+        raise HTTPException(status_code=422, detail="image_groups must be a JSON array")
+
+    files_by_name: dict[str, list[UploadFile]] = {}
+    for upload in images or []:
+        if upload.filename:
+            files_by_name.setdefault(upload.filename, []).append(upload)
+
+    result = []
+    for group in groups:
+        if not isinstance(group, dict) or not isinstance(group.get("title"), str):
+            raise HTTPException(status_code=422, detail="Each image group needs a title")
+        file_names = group.get("images")
+        if not isinstance(file_names, list):
+            raise HTTPException(status_code=422, detail="Each image group needs an images array")
+
+        urls = []
+        for file_name in file_names:
+            if not isinstance(file_name, str) or not files_by_name.get(file_name):
+                raise HTTPException(status_code=422, detail=f"Uploaded image not found: {file_name}")
+            upload = files_by_name[file_name].pop(0)
+            if upload.content_type and not upload.content_type.startswith("image/"):
+                raise HTTPException(status_code=422, detail=f"File is not an image: {file_name}")
+            extension = file_name.rsplit(".", 1)[-1] if "." in file_name else "bin"
+            path = f"gdns/{gdn_reference}/images/{uuid.uuid4().hex}.{extension}"
+            content_type = upload.content_type or mimetypes.guess_type(file_name)[0]
+            urls.append(storage_service.upload_file(await upload.read(), path, content_type))
+        result.append({"title": group["title"].strip(), "images": urls})
+
+    return result
 
 
 def _filtered_gdn_query(
@@ -96,14 +142,53 @@ def _build_gdn_stats(query) -> GDNStats:
     "",
     response_model=GDNResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Create a goods delivery note",
+    summary="Create a goods delivery note with grouped images",
 )
-def create_gdn(
-    gdn_in: GDNCreate,
+async def create_gdn(
+    customer_name: Optional[str] = Form(None),
+    site_name: Optional[str] = Form(None),
+    materials_description_summary: Optional[str] = Form(None),
+    invoice_date: Optional[date] = Form(None),
+    line_items: Optional[str] = Form(None, description="JSON array of line items."),
+    payment_status: str = Form("Pending"),
+    status_value: Optional[str] = Form("Pending", alias="status"),
+    weight: Optional[int] = Form(None, ge=0),
+    gdn_reference: Optional[str] = Form(None),
+    loaded_at: Optional[datetime] = Form(None),
+    loading_dock: Optional[str] = Form(None),
+    pallets_count: Optional[int] = Form(None, ge=0),
+    transporter_name: Optional[str] = Form(None),
+    image_groups: Optional[str] = Form(
+        None,
+        description='JSON array: [{"title":"Loading Dock Photos","images":["dock_1.jpg"]}]',
+    ),
+    images: Optional[list[UploadFile]] = File(
+        None,
+        description="Multiple image files referenced by filename in image_groups.",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(GDN_ROLES)),
 ):
-    gdn = GDN(**gdn_in.model_dump())
+    try:
+        gdn_in = GDNCreate.model_validate({
+            "customer_name": customer_name,
+            "site_name": site_name,
+            "materials_description_summary": materials_description_summary,
+            "invoice_date": invoice_date,
+            "line_items": json.loads(line_items) if line_items else None,
+            "payment_status": payment_status,
+            "status": status_value,
+            "weight": weight,
+            "gdn_reference": gdn_reference,
+            "loaded_at": loaded_at,
+            "loading_dock": loading_dock,
+            "pallets_count": pallets_count,
+            "transporter_name": transporter_name,
+        })
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="line_items must be valid JSON and all fields must be valid") from exc
+    uploaded_groups = await _upload_image_groups(image_groups, images, gdn_in.gdn_reference)
+    gdn = GDN(**gdn_in.model_dump(exclude={"image_groups"}), image_groups=uploaded_groups)
     db.add(gdn)
     return _commit_gdn(db, gdn)
 
@@ -176,14 +261,16 @@ def export_gdns(
     writer.writerow([
         "id", "gdn_reference", "customer_name", "site_name",
         "materials_description_summary", "invoice_date", "payment_status", "status",
-        "loaded_at", "loading_dock", "pallets_count", "transporter_name", "line_items",
+        "weight", "assign", "loaded_at", "loading_dock", "pallets_count",
+        "transporter_name", "line_items", "image_groups",
     ])
     for gdn in query.order_by(GDN.id.desc()).all():
         writer.writerow([
             gdn.id, gdn.gdn_reference, gdn.customer_name, gdn.site_name,
             gdn.materials_description_summary, gdn.invoice_date, gdn.payment_status,
-            gdn.status, gdn.loaded_at, gdn.loading_dock, gdn.pallets_count,
+            gdn.status, gdn.weight, gdn.assign, gdn.loaded_at, gdn.loading_dock, gdn.pallets_count,
             gdn.transporter_name, json.dumps(gdn.line_items or [], ensure_ascii=False),
+            json.dumps(gdn.image_groups or [], ensure_ascii=False),
         ])
     return Response(
         content=output.getvalue(),

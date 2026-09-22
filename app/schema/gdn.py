@@ -13,14 +13,17 @@ class GDNLineItem(BaseModel):
 
 
 class GDNBase(BaseModel):
-    customer_name: str = Field(..., min_length=1, max_length=255)
-    site_name: str = Field(..., min_length=1, max_length=255)
+    customer_name: Optional[str] = Field(None, min_length=1, max_length=255)
+    site_name: Optional[str] = Field(None, min_length=1, max_length=255)
     materials_description_summary: Optional[str] = Field(None, max_length=1000)
-    invoice_date: date
-    line_items: List[GDNLineItem] = Field(..., min_length=1)
+    invoice_date: Optional[date] = None
+    line_items: Optional[List[GDNLineItem]] = Field(None, min_length=1)
     payment_status: str = Field("Pending", min_length=1, max_length=50)
     status: Optional[str] = Field("Pending", min_length=1, max_length=100)
-    gdn_reference: str = Field(..., min_length=1, max_length=100)
+    weight: Optional[int] = Field(None, ge=0)
+    assign: bool = False
+    image_groups: List[dict] = Field(default_factory=list)
+    gdn_reference: Optional[str] = Field(None, min_length=1, max_length=100)
     loaded_at: Optional[datetime] = None
     loading_dock: Optional[str] = Field(None, max_length=100)
     pallets_count: Optional[int] = Field(None, ge=0)
@@ -28,7 +31,7 @@ class GDNBase(BaseModel):
 
     @model_validator(mode="after")
     def validate_line_totals(self):
-        for item in self.line_items:
+        for item in self.line_items or []:
             expected_total = item.qty * item.unit_price
             if abs(item.line_total - expected_total) > 0.01:
                 raise ValueError(
@@ -56,6 +59,13 @@ class GDNCreate(GDNBase):
                 ],
                 "payment_status": "Pending",
                 "status": "GDN Loaded",
+                "weight": 1000,
+                "image_groups": [
+                    {
+                        "title": "Loading Dock Photos",
+                        "images": ["loading_dock_1.jpg", "loading_dock_2.jpg"],
+                    }
+                ],
                 "gdn_reference": "GDN-2026-0001",
                 "loaded_at": "2026-09-22T10:30:00Z",
                 "loading_dock": "Dock A-02",
@@ -74,6 +84,8 @@ class GDNUpdate(BaseModel):
     line_items: Optional[List[GDNLineItem]] = Field(None, min_length=1)
     payment_status: Optional[str] = Field(None, min_length=1, max_length=50)
     status: Optional[str] = Field(None, min_length=1, max_length=100)
+    weight: Optional[int] = Field(None, ge=0)
+    assign: Optional[bool] = None
     gdn_reference: Optional[str] = Field(None, min_length=1, max_length=100)
     loaded_at: Optional[datetime] = None
     loading_dock: Optional[str] = Field(None, max_length=100)

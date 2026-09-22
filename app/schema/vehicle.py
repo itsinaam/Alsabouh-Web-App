@@ -100,9 +100,24 @@ class VehicleUpdate(BaseModel):
 		return cls(**{key: value for key, value in values.items() if value not in (None, "")})
 
 
+class VehicleDriverResponse(BaseModel):
+	id: int
+	full_name: str
+	employee_id: Optional[str] = None
+	email: Optional[str] = None
+	phone_number: Optional[str] = None
+	profile_photo: Optional[str] = None
+	role: str
+	is_active: bool
+	status: Optional[str] = None
+
+	model_config = ConfigDict(from_attributes=True)
+
+
 class VehicleResponse(VehicleBase):
 	id: int
 	mulkiya_inspection_document: List[str] = Field(default_factory=list)
+	driver: Optional[VehicleDriverResponse] = None
 	created_at: datetime
 	updated_at: datetime
 
