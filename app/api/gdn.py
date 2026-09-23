@@ -36,7 +36,7 @@ def _commit_gdn(db: Session, gdn: GDN, duplicate_message: str = "GDN reference a
 async def _upload_image_groups(
     image_groups_json: Optional[str],
     images: Optional[list[UploadFile]],
-    gdn_reference: str,
+    gdn_reference: Optional[str],
 ) -> list[dict[str, object]]:
     if not image_groups_json:
         return []
@@ -68,7 +68,7 @@ async def _upload_image_groups(
             if upload.content_type and not upload.content_type.startswith("image/"):
                 raise HTTPException(status_code=422, detail=f"File is not an image: {file_name}")
             extension = file_name.rsplit(".", 1)[-1] if "." in file_name else "bin"
-            path = f"gdns/{gdn_reference}/images/{uuid.uuid4().hex}.{extension}"
+            path = f"gdns/{gdn_reference or 'unreferenced'}/images/{uuid.uuid4().hex}.{extension}"
             content_type = upload.content_type or mimetypes.guess_type(file_name)[0]
             urls.append(storage_service.upload_file(await upload.read(), path, content_type))
         result.append({"title": group["title"].strip(), "images": urls})
@@ -298,11 +298,32 @@ def get_gdn(
 @router.patch(
     "/{gdn_id}",
     response_model=GDNResponse,
-    summary="Partially update a goods delivery note",
+    summary="Partially update a goods delivery note with optional images",
 )
-def update_gdn(
+async def update_gdn(
     gdn_id: int,
-    gdn_in: GDNUpdate,
+    customer_name: Optional[str] = Form(None),
+    site_name: Optional[str] = Form(None),
+    materials_description_summary: Optional[str] = Form(None),
+    invoice_date: Optional[date] = Form(None),
+    line_items: Optional[str] = Form(None, description="JSON array of line items."),
+    payment_status: Optional[str] = Form(None),
+    status_value: Optional[str] = Form(None, alias="status"),
+    weight: Optional[int] = Form(None, ge=0),
+    assign: Optional[bool] = Form(None),
+    gdn_reference: Optional[str] = Form(None),
+    loaded_at: Optional[datetime] = Form(None),
+    loading_dock: Optional[str] = Form(None),
+    pallets_count: Optional[int] = Form(None, ge=0),
+    transporter_name: Optional[str] = Form(None),
+    image_groups: Optional[str] = Form(
+        None,
+        description='JSON array: [{"title":"Loading Dock Photos","images":["dock_1.jpg"]}]',
+    ),
+    images: Optional[list[UploadFile]] = File(
+        None,
+        description="Optional replacement images referenced by filename in image_groups.",
+    ),
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(GDN_ROLES)),
 ):
@@ -310,8 +331,33 @@ def update_gdn(
     if not gdn:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="GDN not found")
 
+    try:
+        update_data = {
+            "customer_name": customer_name,
+            "site_name": site_name,
+            "materials_description_summary": materials_description_summary,
+            "invoice_date": invoice_date,
+            "line_items": json.loads(line_items) if line_items else None,
+            "payment_status": payment_status,
+            "status": status_value,
+            "weight": weight,
+            "assign": assign,
+            "gdn_reference": gdn_reference,
+            "loaded_at": loaded_at,
+            "loading_dock": loading_dock,
+            "pallets_count": pallets_count,
+            "transporter_name": transporter_name,
+        }
+        gdn_in = GDNUpdate.model_validate({
+            key: value for key, value in update_data.items() if value is not None
+        })
+    except (json.JSONDecodeError, ValueError) as exc:
+        raise HTTPException(status_code=422, detail="line_items must be valid JSON and all fields must be valid") from exc
+
     for key, value in gdn_in.model_dump(exclude_unset=True).items():
         setattr(gdn, key, value)
+    if image_groups is not None or images:
+        gdn.image_groups = await _upload_image_groups(image_groups, images, gdn.gdn_reference)
     return _commit_gdn(db, gdn)
 
 
