@@ -10,3 +10,4 @@ pyjwt>=2.8.0
 supabase>=2.4.0
 python-multipart>=0.0.9
 email-validator>=2.1.1
+geopy>=2.4.1

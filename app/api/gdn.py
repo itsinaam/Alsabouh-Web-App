@@ -9,6 +9,9 @@ from typing import Optional
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+from starlette.concurrency import run_in_threadpool
+from geopy.exc import GeocoderServiceError, GeocoderTimedOut
+from geopy.geocoders import Nominatim
 
 from app.db.session import get_db
 from app.models.auth import User
@@ -21,6 +24,19 @@ from app.utils.security import require_roles
 router = APIRouter(prefix="/gdn", tags=["Invoice & GDN"])
 
 GDN_ROLES = [UserRole.STORE_MANAGER]
+geolocator = Nominatim(user_agent="alsabouh_web_app_gdn")
+
+
+def _geocode_site(site_name: Optional[str]) -> tuple[Optional[float], Optional[float]]:
+    if not site_name or not site_name.strip():
+        return None, None
+    try:
+        location = geolocator.geocode(site_name.strip(), timeout=5)
+    except (GeocoderServiceError, GeocoderTimedOut, OSError):
+        return None, None
+    if not location:
+        return None, None
+    return float(location.latitude), float(location.longitude)
 
 
 def _commit_gdn(db: Session, gdn: GDN, duplicate_message: str = "GDN reference already exists") -> GDN:
@@ -81,6 +97,7 @@ def _filtered_gdn_query(
     search: Optional[str],
     payment_status: Optional[str],
     status_filter: Optional[str],
+    assign: Optional[bool],
     date_range: Optional[str],
     from_date: Optional[date],
     to_date: Optional[date],
@@ -97,6 +114,8 @@ def _filtered_gdn_query(
         query = query.filter(GDN.payment_status.ilike(payment_status.strip()))
     if status_filter and status_filter.lower() != "all":
         query = query.filter(GDN.status.ilike(status_filter.strip()))
+    if assign is not None:
+        query = query.filter(GDN.assign.is_(assign))
 
     selected_range = (date_range or "all").strip().lower().replace("-", "_")
     if selected_range not in {"all", "this_week", "this_month"}:
@@ -188,7 +207,13 @@ async def create_gdn(
     except (json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail="line_items must be valid JSON and all fields must be valid") from exc
     uploaded_groups = await _upload_image_groups(image_groups, images, gdn_in.gdn_reference)
-    gdn = GDN(**gdn_in.model_dump(exclude={"image_groups"}), image_groups=uploaded_groups)
+    latitude, longitude = await run_in_threadpool(_geocode_site, gdn_in.site_name)
+    gdn = GDN(
+        **gdn_in.model_dump(exclude={"image_groups"}),
+        image_groups=uploaded_groups,
+        latitude=latitude,
+        longitude=longitude,
+    )
     db.add(gdn)
     return _commit_gdn(db, gdn)
 
@@ -206,6 +231,7 @@ def list_gdns(
         alias="status",
         description="Filter by operational status, for example Pending, Delivered, or GDN Loaded.",
     ),
+    assign: Optional[bool] = Query(None, description="Filter by assignment state: true or false."),
     date_range: Optional[str] = Query(
         "all",
         description="Date preset for invoice_date: all, this_week, or this_month.",
@@ -224,7 +250,7 @@ def list_gdns(
     current_user: User = Depends(require_roles(GDN_ROLES)),
 ):
     query = _filtered_gdn_query(
-        db, search, payment_status, status_filter, date_range, from_date, to_date
+        db, search, payment_status, status_filter, assign, date_range, from_date, to_date
     )
 
     total = query.count()
@@ -247,6 +273,7 @@ def export_gdns(
     search: Optional[str] = Query(None, description="Search by GDN reference, customer, or site."),
     payment_status: Optional[str] = Query(None, description="Filter by payment status."),
     status_filter: Optional[str] = Query(None, alias="status", description="Filter by GDN status."),
+    assign: Optional[bool] = Query(None, description="Filter by assignment state: true or false."),
     date_range: Optional[str] = Query("all", description="all, this_week, or this_month."),
     from_date: Optional[date] = Query(None, description="Custom start date, YYYY-MM-DD."),
     to_date: Optional[date] = Query(None, description="Custom end date, YYYY-MM-DD."),
@@ -254,7 +281,7 @@ def export_gdns(
     current_user: User = Depends(require_roles(GDN_ROLES)),
 ):
     query = _filtered_gdn_query(
-        db, search, payment_status, status_filter, date_range, from_date, to_date
+        db, search, payment_status, status_filter, assign, date_range, from_date, to_date
     )
     output = io.StringIO(newline="")
     writer = csv.writer(output)
@@ -356,6 +383,8 @@ async def update_gdn(
 
     for key, value in gdn_in.model_dump(exclude_unset=True).items():
         setattr(gdn, key, value)
+    if "site_name" in gdn_in.model_fields_set:
+        gdn.latitude, gdn.longitude = await run_in_threadpool(_geocode_site, gdn.site_name)
     if image_groups is not None or images:
         gdn.image_groups = await _upload_image_groups(image_groups, images, gdn.gdn_reference)
     return _commit_gdn(db, gdn)

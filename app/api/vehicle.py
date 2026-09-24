@@ -52,7 +52,7 @@ async def create_vehicle(
 	vehicle_in: VehicleCreate = Depends(VehicleCreate.as_form),
 	mulkiya_inspection_documents: Optional[List[UploadFile]] = File(None),
 	db: Session = Depends(get_db),
-	current_user: User = Depends(require_roles([UserRole.ADMIN])),
+	current_user: User = Depends(require_roles([UserRole.STORE_MANAGER])),
 ):
 	_validate_assignments(db, vehicle_in.assigned_home_depot, vehicle_in.designated_primary_driver)
 	vehicle = Vehicle(**vehicle_in.model_dump())
@@ -160,7 +160,7 @@ async def update_vehicle(
 	vehicle_in: VehicleUpdate = Depends(VehicleUpdate.as_form),
 	mulkiya_inspection_documents: Optional[List[UploadFile]] = File(None),
 	db: Session = Depends(get_db),
-	current_user: User = Depends(require_roles([UserRole.ADMIN])),
+	current_user: User = Depends(require_roles([UserRole.STORE_MANAGER])),
 ):
 	vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 	if not vehicle:
@@ -188,7 +188,7 @@ async def update_vehicle(
 def delete_vehicle(
 	vehicle_id: int,
 	db: Session = Depends(get_db),
-	current_user: User = Depends(require_roles([UserRole.ADMIN])),
+	current_user: User = Depends(require_roles([UserRole.STORE_MANAGER])),
 ):
 	vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 	if not vehicle:

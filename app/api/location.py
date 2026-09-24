@@ -35,7 +35,7 @@ def create_hub(
     db.refresh(hub)
     return hub
 
-@router.get("",response_model=HubListResponse,summary="List Locations with search, filters, pagination, and KPI metrics (Admin Only")
+@router.get("",response_model=HubListResponse,summary="List Locations with search, filters, pagination, and KPI metrics")
 def list_hubs(
     search: Optional[str] = Query(None, description="Search across name, emirate, address, plot, or notes"),
     emirate: Optional[str] = Query(None, description="Filter by emirate jurisdiction"),

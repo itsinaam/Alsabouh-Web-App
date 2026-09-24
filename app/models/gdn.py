@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Any, Optional
 
-from sqlalchemy import Boolean, Date, DateTime, Integer, JSON, String, func
+from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
@@ -15,6 +15,8 @@ class GDN(Base):
 	# Invoice details
 	customer_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 	site_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+	latitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+	longitude: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
 	materials_description_summary: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
 	invoice_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 	line_items: Mapped[Optional[list[dict[str, Any]]]] = mapped_column(JSON, nullable=True, default=list)
@@ -22,6 +24,9 @@ class GDN(Base):
 	status: Mapped[Optional[str]] = mapped_column(String(100), nullable=True, default="Pending", index=True)
 	weight: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 	assign: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False, server_default="false")
+	run_planner_id: Mapped[Optional[int]] = mapped_column(
+		ForeignKey("run_planners.id"), nullable=True, index=True
+	)
 	image_groups: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
 
 	# Goods Delivery Note details

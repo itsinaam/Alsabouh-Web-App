@@ -106,6 +106,9 @@ class GDNUpdate(BaseModel):
 
 class GDNResponse(GDNBase):
     id: int
+    run_planner_id: Optional[int] = None
+    latitude: Optional[float] = None
+    longitude: Optional[float] = None
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)

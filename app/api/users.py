@@ -111,7 +111,7 @@ async def add_driver(
 @router.get(
     "",
     response_model=dict,
-    summary="List all users with Role, Status filters and Search (Admin Only)"
+    summary="List all users with Role, Status filters and Search (Admin and Store Manager)"
 )
 def list_users(
     role: Optional[str] = Query(None, description="Filter by role: all, driver, store-manager, admin"),
@@ -120,7 +120,7 @@ def list_users(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN])),
+    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
 ):
     """
     Unified directory endpoint for Admin to view and filter users:
