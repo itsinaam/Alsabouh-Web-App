@@ -4,6 +4,8 @@ from typing import Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.run_planner import RunPlannerStatus
+from app.schema.gdn import GDNResponse
+from app.schema.vehicle import VehicleResponse
 
 
 class RunPlannerBase(BaseModel):
@@ -32,6 +34,8 @@ class RunPlannerResponse(RunPlannerBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    commercial_vehicle: VehicleResponse
+    gdns: list[GDNResponse] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)
 

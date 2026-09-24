@@ -3,9 +3,10 @@ from enum import Enum
 
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, Time, func
 from sqlalchemy import Enum as SQLEnum
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.vehicle import Vehicle
 
 
 class RunPlannerStatus(str, Enum):
@@ -40,3 +41,5 @@ class RunPlanner(Base):
 	updated_at: Mapped[datetime] = mapped_column(
 		DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
 	)
+	commercial_vehicle: Mapped["Vehicle"] = relationship("Vehicle")
+	gdns: Mapped[list["GDN"]] = relationship("GDN", back_populates="run_planner")

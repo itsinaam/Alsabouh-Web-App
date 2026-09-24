@@ -30,13 +30,24 @@ geolocator = Nominatim(user_agent="alsabouh_web_app_gdn")
 def _geocode_site(site_name: Optional[str]) -> tuple[Optional[float], Optional[float]]:
     if not site_name or not site_name.strip():
         return None, None
-    try:
-        location = geolocator.geocode(site_name.strip(), timeout=5)
-    except (GeocoderServiceError, GeocoderTimedOut, OSError):
-        return None, None
-    if not location:
-        return None, None
-    return float(location.latitude), float(location.longitude)
+    address = site_name.strip()
+    queries = [address]
+    parts = [part.strip() for part in address.split(",") if part.strip()]
+    if len(parts) >= 3:
+        simplified_address = ", ".join([parts[0], parts[-2], parts[-1]])
+        if simplified_address not in queries:
+            queries.append(simplified_address)
+    if len(parts) >= 2 and parts[-1].lower() not in {"pakistan", "uae", "united arab emirates"}:
+        queries.append(f"{address}, Pakistan")
+
+    for query in queries:
+        try:
+            location = geolocator.geocode(query, timeout=5)
+        except (GeocoderServiceError, GeocoderTimedOut, OSError):
+            continue
+        if location:
+            return float(location.latitude), float(location.longitude)
+    return None, None
 
 
 def _commit_gdn(db: Session, gdn: GDN, duplicate_message: str = "GDN reference already exists") -> GDN:

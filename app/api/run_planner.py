@@ -3,7 +3,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import get_db
 from app.models.auth import User
@@ -72,7 +72,10 @@ def list_run_plans(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(READ_ROLES)),
 ):
-    query = db.query(RunPlanner)
+    query = db.query(RunPlanner).options(
+        selectinload(RunPlanner.commercial_vehicle),
+        selectinload(RunPlanner.gdns),
+    )
     if status_filter:
         query = query.filter(RunPlanner.status == status_filter)
     if dispatch_date:

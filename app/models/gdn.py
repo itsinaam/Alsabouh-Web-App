@@ -2,7 +2,7 @@ from datetime import date, datetime
 from typing import Any, Optional
 
 from sqlalchemy import Boolean, Date, DateTime, Float, ForeignKey, Integer, JSON, String, func
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -27,6 +27,7 @@ class GDN(Base):
 	run_planner_id: Mapped[Optional[int]] = mapped_column(
 		ForeignKey("run_planners.id"), nullable=True, index=True
 	)
+	run_planner: Mapped[Optional["RunPlanner"]] = relationship("RunPlanner", back_populates="gdns")
 	image_groups: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
 
 	# Goods Delivery Note details
