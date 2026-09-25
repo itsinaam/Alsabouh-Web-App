@@ -25,6 +25,7 @@ from app.utils.security import require_roles
 router = APIRouter(prefix="/run-planner", tags=["Run Planner"])
 
 MANAGER_ROLES = [UserRole.ADMIN, UserRole.STORE_MANAGER]
+RUN_PLAN_UPDATE_ROLES = [UserRole.ADMIN, UserRole.STORE_MANAGER, UserRole.DRIVER]
 READ_ROLES = [UserRole.ADMIN, UserRole.STORE_MANAGER, UserRole.DRIVER]
 
 
@@ -182,13 +183,25 @@ def update_run_plan(
     run_plan_id: int,
     run_in: RunPlannerUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(MANAGER_ROLES)),
+    current_user: User = Depends(require_roles(RUN_PLAN_UPDATE_ROLES)),
 ):
     run_plan = db.query(RunPlanner).filter(RunPlanner.id == run_plan_id).first()
     if not run_plan:
         raise HTTPException(status_code=404, detail="Run plan not found")
 
     data = run_in.model_dump(exclude_unset=True)
+    if current_user.role == UserRole.DRIVER:
+        if run_plan.driver_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Drivers can only update their own run plan",
+            )
+        if set(data) != {"status"} or data.get("status") != RunPlannerStatus.DISPATCHED:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Drivers may only mark their own run plan as Dispatched",
+            )
+
     _validate_assignments(
         db,
         data.get("commercial_vehicle_id", run_plan.commercial_vehicle_id),

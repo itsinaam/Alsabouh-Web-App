@@ -16,6 +16,7 @@ from geopy.geocoders import Nominatim
 from app.db.session import get_db
 from app.models.auth import User
 from app.models.gdn import GDN
+from app.models.run_planner import RunPlanner
 from app.schema.gdn import GDNCreate, GDNListResponse, GDNResponse, GDNStats, GDNUpdate
 from app.services.storage import storage_service
 from app.utils.constants import UserRole
@@ -24,6 +25,8 @@ from app.utils.security import require_roles
 router = APIRouter(prefix="/gdn", tags=["Invoice & GDN"])
 
 GDN_ROLES = [UserRole.STORE_MANAGER]
+GDN_UPDATE_ROLES = [UserRole.STORE_MANAGER, UserRole.DRIVER]
+DRIVER_GDN_STATUSES = {"Delivered", "Partial", "Failed"}
 geolocator = Nominatim(user_agent="alsabouh_web_app_gdn")
 
 
@@ -363,11 +366,44 @@ async def update_gdn(
         description="Optional replacement images referenced by filename in image_groups.",
     ),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(GDN_ROLES)),
+    current_user: User = Depends(require_roles(GDN_UPDATE_ROLES)),
 ):
     gdn = db.query(GDN).filter(GDN.id == gdn_id).first()
     if not gdn:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="GDN not found")
+
+    if current_user.role == UserRole.DRIVER:
+        run_plan = db.query(RunPlanner).filter(RunPlanner.id == gdn.run_planner_id).first()
+        if not run_plan or run_plan.driver_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Drivers can only update GDNs assigned to their own run",
+            )
+        driver_fields = {
+            "customer_name": customer_name,
+            "site_name": site_name,
+            "materials_description_summary": materials_description_summary,
+            "invoice_date": invoice_date,
+            "line_items": line_items,
+            "payment_status": payment_status,
+            "weight": weight,
+            "assign": assign,
+            "gdn_reference": gdn_reference,
+            "loaded_at": loaded_at,
+            "loading_dock": loading_dock,
+            "pallets_count": pallets_count,
+            "transporter_name": transporter_name,
+        }
+        if any(value is not None for value in driver_fields.values()):
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Drivers may only update delivery status and POD images",
+            )
+        if status_value is not None and status_value not in DRIVER_GDN_STATUSES:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Driver GDN status must be Delivered, Partial, or Failed",
+            )
 
     try:
         update_data = {
