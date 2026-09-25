@@ -292,7 +292,7 @@ def export_gdns(
     from_date: Optional[date] = Query(None, description="Custom start date, YYYY-MM-DD."),
     to_date: Optional[date] = Query(None, description="Custom end date, YYYY-MM-DD."),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(GDN_ROLES)),
+    current_user: User = Depends(require_roles(GDN_UPDATE_ROLES)),
 ):
     query = _filtered_gdn_query(
         db, search, payment_status, status_filter, assign, date_range, from_date, to_date
@@ -328,7 +328,7 @@ def export_gdns(
 def get_gdn(
     gdn_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(GDN_ROLES)),
+    current_user: User = Depends(require_roles(GDN_UPDATE_ROLES)),
 ):
     gdn = db.query(GDN).filter(GDN.id == gdn_id).first()
     if not gdn:
