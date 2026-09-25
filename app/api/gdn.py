@@ -25,7 +25,7 @@ from app.utils.security import require_roles
 router = APIRouter(prefix="/gdn", tags=["Invoice & GDN"])
 
 GDN_ROLES = [UserRole.STORE_MANAGER]
-GDN_UPDATE_ROLES = [UserRole.STORE_MANAGER, UserRole.DRIVER]
+GDN_UPDATE_ROLES = [UserRole.STORE_MANAGER, UserRole.DRIVER, UserRole.ADMIN]
 DRIVER_GDN_STATUSES = {"Delivered", "Partial", "Failed"}
 geolocator = Nominatim(user_agent="alsabouh_web_app_gdn")
 
@@ -261,7 +261,7 @@ def list_gdns(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=200),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles(GDN_ROLES)),
+    current_user: User = Depends(require_roles(GDN_UPDATE_ROLES)),
 ):
     query = _filtered_gdn_query(
         db, search, payment_status, status_filter, assign, date_range, from_date, to_date
