@@ -33,6 +33,7 @@ class Settings:
     SMTP_USER: str = config("SMTP_USER", default="")
     SMTP_PASSWORD: str = config("SMTP_PASSWORD", default="")
     EMAILS_FROM_NAME: str = config("EMAILS_FROM_NAME", default="Alsabouh")
+    FRONTEND_URL: str = config("FRONTEND_URL", default="https://alsabouh-two.vercel.app/login")
 
 
 settings = Settings()

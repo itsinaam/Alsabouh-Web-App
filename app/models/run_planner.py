@@ -6,6 +6,7 @@ from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.location import Location
 from app.models.vehicle import Vehicle
 
 
@@ -42,4 +43,5 @@ class RunPlanner(Base):
 		DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
 	)
 	commercial_vehicle: Mapped["Vehicle"] = relationship("Vehicle")
+	dispatch_location: Mapped["Location"] = relationship("Location")
 	gdns: Mapped[list["GDN"]] = relationship("GDN", back_populates="run_planner")

@@ -117,6 +117,24 @@ class EmailService:
         )
         return self.send_email(to_email=to_email, subject=subject, html_content=html, text_content=text)
 
+    def send_password_reset_email(self, to_email: str, full_name: str, reset_url: str) -> bool:
+        subject = f"Reset your {self.from_name} password"
+        html = f"""
+        <div style="font-family: Arial, sans-serif; max-width: 580px; margin: 0 auto; padding: 30px;">
+            <h2>{self.from_name} password reset</h2>
+            <p>Hello <strong>{full_name}</strong>,</p>
+            <p>Use the button below to create a new password. This link expires in 30 minutes.</p>
+            <p><a href="{reset_url}" style="display:inline-block;padding:12px 20px;background:#1d4ed8;color:#fff;text-decoration:none;border-radius:6px;">Reset password</a></p>
+            <p>If you did not request this, you can safely ignore this email.</p>
+        </div>
+        """
+        text = (
+            f"Hello {full_name},\n\n"
+            f"Reset your password using this link (expires in 30 minutes): {reset_url}\n\n"
+            "If you did not request this, ignore this email."
+        )
+        return self.send_email(to_email=to_email, subject=subject, html_content=html, text_content=text)
+
     # Backward-compatible alias so existing driver registration code calls the unified template
     send_driver_credentials_email = send_welcome_credentials_email
 
