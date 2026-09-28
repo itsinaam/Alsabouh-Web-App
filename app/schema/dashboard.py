@@ -168,3 +168,21 @@ class StoreManagerDashboardResponse(BaseModel):
     total_active_deliveries: int
     skip: int = 0
     limit: int = 50
+
+
+class DriverPerformanceResponse(BaseModel):
+    """Delivery performance for a single driver over a date window."""
+
+    driver_id: int
+    driver_name: Optional[str] = None
+    period: str
+    from_date: Optional[date] = None
+    to_date: Optional[date] = None
+    total_stops: int
+    deliveries_completed: int
+    partial_stops: int
+    failed_stops: int
+    pending_stops: int
+    success_rate: float
+    active_days: int
+    avg_per_day: float
