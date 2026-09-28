@@ -47,6 +47,10 @@ class UserResponse(BaseModel):
     role: str
     is_active: bool
     status: Optional[str] = None
+    # Staff details the driver app shows on its run screens. Optional, so
+    # existing consumers are unaffected.
+    employee_id: Optional[str] = None
+    shift_schedule: Optional[str] = None
     assigned_warehouse: Optional[str] = None
     primary_hub: Optional[str] = None
     location_id: Optional[int] = None
