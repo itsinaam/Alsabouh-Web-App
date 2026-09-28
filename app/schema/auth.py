@@ -26,6 +26,18 @@ class UserCreate(BaseModel):
     role: UserRole = UserRole.DRIVER
 
 
+class UserLocationBrief(BaseModel):
+    id: int
+    hub_name: str
+    emirate_jurisdiction: str
+    street_address: Optional[str] = None
+    loading_bays_count: int = 0
+    status: Optional[str] = None
+
+    class Config:
+        from_attributes = True
+
+
 class UserResponse(BaseModel):
     id: int
     email: Optional[str] = None
@@ -34,6 +46,12 @@ class UserResponse(BaseModel):
     profile_photo: Optional[str] = None
     role: str
     is_active: bool
+    status: Optional[str] = None
+    assigned_warehouse: Optional[str] = None
+    primary_hub: Optional[str] = None
+    location_id: Optional[int] = None
+    location_name: Optional[str] = None
+    location: Optional[UserLocationBrief] = None
     created_at: datetime
 
     class Config:

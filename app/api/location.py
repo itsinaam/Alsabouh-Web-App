@@ -8,18 +8,18 @@ from app.models.auth import User
 from app.models.location import Location
 from app.schema.location import (
     HubCreate,
-    HubDropdownResponse,
     HubListResponse,
     HubResponse,
     HubUpdate,
 )
 from app.utils.constants import UserRole
+from app.utils.location_helper import resolve_user_location
 from app.utils.security import get_current_user, require_roles
 
 router = APIRouter(prefix="/location", tags=["Location"])
 
 
-@router.post("",response_model=HubResponse,status_code=status.HTTP_201_CREATED,summary="Create Location  (Admin Only)")
+@router.post("", response_model=HubResponse, status_code=status.HTTP_201_CREATED, summary="Create Location (Admin Only)")
 def create_hub(
     hub_in: HubCreate,
     db: Session = Depends(get_db),
@@ -102,8 +102,13 @@ def list_hubs(
     }
 
 
-@router.patch("/{id}",response_model=HubResponse,summary="Update a Location (Admin Only)")
-def patch_hub(id: int, hub_in: HubUpdate,db: Session = Depends(get_db), current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER]))):
+@router.patch("/{id}", response_model=HubResponse, summary="Update a Location")
+def patch_hub(
+    id: int,
+    hub_in: HubUpdate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
+):
     """Partially updates specified fields of an existing Hub."""
     hub = db.query(Location).filter(Location.id == id).first()
     if not hub:
@@ -111,6 +116,14 @@ def patch_hub(id: int, hub_in: HubUpdate,db: Session = Depends(get_db), current_
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Hub with ID {id} not found",
         )
+
+    if current_user.role == UserRole.STORE_MANAGER:
+        user_loc = resolve_user_location(current_user, db)
+        if user_loc and hub.id != user_loc.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Store managers can only update their own assigned location",
+            )
 
     update_data = hub_in.model_dump(exclude_unset=True)
     for key, value in update_data.items():
@@ -120,8 +133,13 @@ def patch_hub(id: int, hub_in: HubUpdate,db: Session = Depends(get_db), current_
     db.refresh(hub)
     return hub
 
-@router.delete("/{id}",status_code=status.HTTP_200_OK, summary="Delete a Location (Admin Only)")
-def delete_hub(id: int,db: Session = Depends(get_db),current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER]))):
+
+@router.delete("/{id}", status_code=status.HTTP_200_OK, summary="Delete a Location (Admin Only)")
+def delete_hub(
+    id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles([UserRole.ADMIN])),
+):
     """Deletes a Hub by ID. Restricted to Admin."""
     hub = db.query(Location).filter(Location.id == id).first()
     if not hub:
@@ -137,3 +155,4 @@ def delete_hub(id: int,db: Session = Depends(get_db),current_user: User = Depend
         "message": f"Location {id} successfully deleted",
         "deleted_id": id,
     }
+

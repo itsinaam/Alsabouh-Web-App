@@ -60,10 +60,39 @@ def login(login_data: LoginRequest, db: Session = Depends(get_db)):
     )
 
 
+from app.utils.location_helper import resolve_user_location
+
+
+def _build_user_response(user: User, db: Session) -> UserResponse:
+    loc = resolve_user_location(user, db)
+    loc_name = loc.hub_name if loc else (user.assigned_warehouse or user.primary_hub)
+    loc_id = loc.id if loc else None
+
+    return UserResponse(
+        id=user.id,
+        email=user.email,
+        phone_number=user.phone_number,
+        full_name=user.full_name,
+        profile_photo=user.profile_photo,
+        role=user.role.value if hasattr(user.role, "value") else str(user.role),
+        is_active=user.is_active,
+        status=user.status,
+        assigned_warehouse=user.assigned_warehouse,
+        primary_hub=user.primary_hub,
+        location_id=loc_id,
+        location_name=loc_name,
+        location=loc,
+        created_at=user.created_at,
+    )
+
+
 @router.get("/me", response_model=UserResponse, summary="Get current logged in user details")
-def get_current_user_profile(current_user: User = Depends(get_current_user)):
-    """Returns the authenticated user's profile and active role."""
-    return current_user
+def get_current_user_profile(
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Returns the authenticated user's profile, active role, and assigned location/hub details."""
+    return _build_user_response(current_user, db)
 
 
 @router.patch("/me", response_model=UserResponse, summary="Update current user profile")
@@ -90,7 +119,7 @@ def update_current_user_profile(
     except IntegrityError:
         db.rollback()
         raise HTTPException(status_code=409, detail="Phone number is already in use")
-    return current_user
+    return _build_user_response(current_user, db)
 
 
 @router.post(

@@ -16,6 +16,7 @@ from app.schema.audit import (
     AuditVehicle,
 )
 from app.utils.constants import UserRole
+from app.utils.location_helper import resolve_user_location
 from app.utils.security import require_roles
 
 router = APIRouter(prefix="/audit-details", tags=["Audit Details"])
@@ -103,14 +104,25 @@ def _to_audit_response(run: RunPlanner, driver: Optional[User]) -> AuditRunRespo
     )
 
 
-def _load_runs(db: Session) -> list[RunPlanner]:
-    return (
+def _load_runs(db: Session, current_user: Optional[User] = None) -> list[RunPlanner]:
+    query = (
         db.query(RunPlanner)
         .options(
             joinedload(RunPlanner.commercial_vehicle),
             joinedload(RunPlanner.dispatch_location),
             selectinload(RunPlanner.gdns),
         )
+    )
+    if current_user:
+        if current_user.role == UserRole.STORE_MANAGER:
+            user_loc = resolve_user_location(current_user, db)
+            if user_loc:
+                query = query.filter(RunPlanner.dispatch_location_id == user_loc.id)
+        elif current_user.role == UserRole.DRIVER:
+            query = query.filter(RunPlanner.driver_id == current_user.id)
+
+    return (
+        query
         .order_by(RunPlanner.dispatch_date.desc(), RunPlanner.planned_departure_time.desc(), RunPlanner.id.desc())
         .all()
     )
@@ -136,7 +148,7 @@ def list_audit_details(
     current_user: User = Depends(require_roles(READ_ROLES)),
 ):
     start_date, end_date = _date_bounds(date_range, from_date, to_date)
-    runs = _load_runs(db)
+    runs = _load_runs(db, current_user=current_user)
     if start_date:
         runs = [run for run in runs if run.dispatch_date >= start_date]
     if end_date:
@@ -188,5 +200,21 @@ def get_audit_details(
     )
     if not run:
         raise HTTPException(status_code=404, detail="Run audit not found")
+
+    if current_user.role == UserRole.STORE_MANAGER:
+        user_loc = resolve_user_location(current_user, db)
+        if user_loc and run.dispatch_location_id != user_loc.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Store managers can only view audit details from their assigned location",
+            )
+    elif current_user.role == UserRole.DRIVER:
+        if run.driver_id != current_user.id:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Drivers can only view audit details for their own runs",
+            )
+
     driver = db.query(User).filter(User.id == run.driver_id).first()
     return _to_audit_response(run, driver)
+

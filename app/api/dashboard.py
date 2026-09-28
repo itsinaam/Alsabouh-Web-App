@@ -8,8 +8,10 @@ from sqlalchemy.orm import Session, selectinload
 from app.db.session import get_db
 from app.models.auth import User
 from app.models.gdn import GDN
+from app.models.location import Location
 from app.models.run_planner import RunPlanner, RunPlannerStatus
 from app.models.vehicle import Vehicle
+from app.utils.location_helper import resolve_user_location
 from app.schema.dashboard import (
     ActiveDeliveryTableRow,
     DashboardMetrics,
@@ -142,6 +144,12 @@ def get_store_manager_dashboard(
 ):
     today = date.today()
     one_hour_ago = datetime.now() - timedelta(hours=1)
+
+    # Automatically scope to Store Manager assigned location
+    if current_user.role == UserRole.STORE_MANAGER:
+        user_loc = resolve_user_location(current_user, db)
+        if user_loc:
+            hub_id = user_loc.id
 
     # -------------------------------------------------------------------------
     # 1. Base Active Deliveries Definition
@@ -363,20 +371,32 @@ def get_store_manager_dashboard(
     # -------------------------------------------------------------------------
     # 6. Driver Performance Leaderboard (Bulk Optimized)
     # -------------------------------------------------------------------------
-    active_drivers = (
-        db.query(User)
-        .filter(User.role == UserRole.DRIVER, User.is_active.is_(True))
-        .all()
-    )
-
-    all_run_plans = (
+    active_drivers_query = db.query(User).filter(User.role == UserRole.DRIVER, User.is_active.is_(True))
+    run_plans_query = (
         db.query(RunPlanner)
         .options(
             selectinload(RunPlanner.commercial_vehicle),
             selectinload(RunPlanner.gdns),
         )
-        .all()
     )
+
+    if hub_id is not None:
+        run_plans_query = run_plans_query.filter(RunPlanner.dispatch_location_id == hub_id)
+        driver_ids_with_runs = (
+            db.query(RunPlanner.driver_id)
+            .filter(RunPlanner.dispatch_location_id == hub_id)
+            .distinct()
+        )
+        hub_obj = db.query(Location).filter(Location.id == hub_id).first()
+        hub_name = hub_obj.hub_name if hub_obj else None
+        hub_driver_filters = [User.id.in_(driver_ids_with_runs), User.primary_hub == str(hub_id)]
+        if hub_name:
+            hub_driver_filters.append(User.primary_hub.ilike(f"%{hub_name}%"))
+        active_drivers = active_drivers_query.filter(or_(*hub_driver_filters)).all()
+    else:
+        active_drivers = active_drivers_query.all()
+
+    all_run_plans = run_plans_query.all()
 
     plans_by_driver: Dict[int, List[RunPlanner]] = {}
     for rp in all_run_plans:

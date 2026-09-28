@@ -20,6 +20,7 @@ from app.schema.vehicle import (
 )
 from app.services.storage import storage_service
 from app.utils.constants import UserRole
+from app.utils.location_helper import resolve_user_location
 from app.utils.security import require_roles
 
 router = APIRouter(prefix="/vehicle", tags=["Vehicles"])
@@ -52,8 +53,13 @@ async def create_vehicle(
 	vehicle_in: VehicleCreate = Depends(VehicleCreate.as_form),
 	mulkiya_inspection_documents: Optional[List[UploadFile]] = File(None),
 	db: Session = Depends(get_db),
-	current_user: User = Depends(require_roles([UserRole.STORE_MANAGER])),
+	current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
 ):
+	if current_user.role == UserRole.STORE_MANAGER:
+		user_loc = resolve_user_location(current_user, db)
+		if user_loc and not vehicle_in.assigned_home_depot:
+			vehicle_in.assigned_home_depot = user_loc.id
+
 	_validate_assignments(db, vehicle_in.assigned_home_depot, vehicle_in.designated_primary_driver)
 	vehicle = Vehicle(**vehicle_in.model_dump())
 	db.add(vehicle)
@@ -107,6 +113,13 @@ def list_vehicles(
 	}
 
 	query = db.query(Vehicle)
+	if current_user.role == UserRole.STORE_MANAGER:
+		user_loc = resolve_user_location(current_user, db)
+		if user_loc:
+			query = query.filter(
+				or_(Vehicle.assigned_home_depot == user_loc.id, Vehicle.assigned_home_depot.is_(None))
+			)
+
 	if search:
 		term = f"%{search.strip()}%"
 		query = query.filter(
@@ -160,11 +173,20 @@ async def update_vehicle(
 	vehicle_in: VehicleUpdate = Depends(VehicleUpdate.as_form),
 	mulkiya_inspection_documents: Optional[List[UploadFile]] = File(None),
 	db: Session = Depends(get_db),
-	current_user: User = Depends(require_roles([UserRole.STORE_MANAGER])),
+	current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
 ):
 	vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 	if not vehicle:
 		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+
+	if current_user.role == UserRole.STORE_MANAGER:
+		user_loc = resolve_user_location(current_user, db)
+		if user_loc and vehicle.assigned_home_depot and vehicle.assigned_home_depot != user_loc.id:
+			raise HTTPException(
+				status_code=status.HTTP_403_FORBIDDEN,
+				detail="Store managers can only update vehicles assigned to their depot",
+			)
+
 	data = vehicle_in.model_dump(exclude_unset=True)
 	_validate_assignments(
 		db,
@@ -188,10 +210,20 @@ async def update_vehicle(
 def delete_vehicle(
 	vehicle_id: int,
 	db: Session = Depends(get_db),
-	current_user: User = Depends(require_roles([UserRole.STORE_MANAGER])),
+	current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
 ):
 	vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
 	if not vehicle:
 		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
+
+	if current_user.role == UserRole.STORE_MANAGER:
+		user_loc = resolve_user_location(current_user, db)
+		if user_loc and vehicle.assigned_home_depot and vehicle.assigned_home_depot != user_loc.id:
+			raise HTTPException(
+				status_code=status.HTTP_403_FORBIDDEN,
+				detail="Store managers can only delete vehicles assigned to their depot",
+			)
+
 	db.delete(vehicle)
 	db.commit()
+
