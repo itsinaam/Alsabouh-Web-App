@@ -17,7 +17,7 @@ from geopy.geocoders import Nominatim
 from app.db.session import get_db
 from app.models.auth import User
 from app.models.gdn import GDN
-from app.models.run_planner import RunPlanner
+from app.models.run_planner import RunPlanner, RunPlannerStatus
 from app.schema.gdn import GDNCreate, GDNListResponse, GDNResponse, GDNStats, GDNUpdate
 from app.services.storage import storage_service
 from app.utils.constants import UserRole
@@ -371,6 +371,43 @@ def get_gdn(
     return gdn
 
 
+
+def _stop_is_closed(gdn_status: Optional[str]) -> bool:
+    """True once the driver has signed the stop off, whatever the outcome."""
+    text = (gdn_status or "").lower()
+    return any(term in text for term in ("deliver", "partial", "fail"))
+
+
+def _refresh_run_status(db: Session, gdn: GDN) -> None:
+    """Closes the run once every one of its stops has been signed off.
+
+    All stops delivered closes it as Delivered; a partial or refused stop
+    closes it as Completed with Exceptions so the office can see the run did
+    not go to plan. Reopening a stop puts the run back on the road.
+    """
+    if not gdn.run_planner_id:
+        return
+    run_plan = db.query(RunPlanner).filter(RunPlanner.id == gdn.run_planner_id).first()
+    if not run_plan or run_plan.status == RunPlannerStatus.READY_TO_DISPATCH:
+        return
+
+    stops = run_plan.gdns
+    if not stops:
+        return
+
+    if not all(_stop_is_closed(stop.status) for stop in stops):
+        run_plan.status = RunPlannerStatus.DISPATCHED
+        return
+
+    had_exception = any(
+        term in (stop.status or "").lower()
+        for stop in stops
+        for term in ("partial", "fail")
+    )
+    run_plan.status = (
+        RunPlannerStatus.EXCEPTIONS if had_exception else RunPlannerStatus.DELIVERED
+    )
+
 @router.patch(
     "/{gdn_id}",
     response_model=GDNResponse,
@@ -488,6 +525,8 @@ async def update_gdn(
         gdn.latitude, gdn.longitude = await run_in_threadpool(_geocode_site, gdn.site_name)
     if image_groups is not None or images:
         gdn.image_groups = await _upload_image_groups(image_groups, images, gdn.gdn_reference)
+
+    _refresh_run_status(db, gdn)
 
     # Stamp the moment the stop was closed out, so the audit trail does not
     # depend on anyone typing a time.

@@ -23,6 +23,9 @@ router = APIRouter(prefix="/audit-details", tags=["Audit Details"])
 
 READ_ROLES = [UserRole.ADMIN, UserRole.STORE_MANAGER, UserRole.DRIVER]
 
+# A run is only finished once the driver has closed out every stop on it.
+CLOSED_STATUSES = [RunPlannerStatus.DELIVERED, RunPlannerStatus.EXCEPTIONS]
+
 
 def _date_bounds(
     date_range: str,
@@ -67,7 +70,7 @@ def _to_audit_response(run: RunPlanner, driver: Optional[User]) -> AuditRunRespo
     payload_dispatched = sum(gdn.weight or 0 for gdn in assigned_gdns)
     capacity = run.commercial_vehicle.gross_payload_capacity if run.commercial_vehicle else None
     utilization = round(payload_dispatched / capacity * 100, 2) if capacity else None
-    is_completed = run.status == RunPlannerStatus.DISPATCHED
+    is_completed = run.status in CLOSED_STATUSES
 
     # Signatures arrive as their own image group, so split them out of the
     # photo tally instead of counting every uploaded image as a photo.
@@ -174,7 +177,9 @@ def list_audit_details(
         runs = [run for run in runs if run.dispatch_date <= end_date]
     if status_filter and status_filter.lower() not in {"all", ""}:
         selected_status = status_filter.strip().lower()
-        if selected_status in {"completed", "completed & sealed", "dispatched"}:
+        if selected_status in {"completed", "completed & sealed"}:
+            runs = [run for run in runs if run.status in CLOSED_STATUSES]
+        elif selected_status == "dispatched":
             runs = [run for run in runs if run.status == RunPlannerStatus.DISPATCHED]
         elif selected_status in {"pending", "ready to dispatch", "ready"}:
             runs = [run for run in runs if run.status == RunPlannerStatus.READY_TO_DISPATCH]
@@ -183,7 +188,7 @@ def list_audit_details(
     runs = [run for run in runs if _run_matches_search(run, search)]
 
     drivers = _load_drivers(db, runs)
-    completed_runs = [run for run in runs if run.status == RunPlannerStatus.DISPATCHED]
+    completed_runs = [run for run in runs if run.status in CLOSED_STATUSES]
     total_payload = sum(gdn.weight or 0 for run in completed_runs for gdn in run.gdns)
     items = [_to_audit_response(run, drivers.get(run.driver_id)) for run in runs[skip : skip + limit]]
 

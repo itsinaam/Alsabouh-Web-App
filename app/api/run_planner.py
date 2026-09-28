@@ -23,6 +23,10 @@ from app.utils.constants import UserRole
 from app.utils.location_helper import resolve_user_location
 from app.utils.security import require_roles
 
+# A closed run: the driver has signed off every stop on it.
+CLOSED_STATUSES = [RunPlannerStatus.DELIVERED, RunPlannerStatus.EXCEPTIONS]
+DRIVER_VISIBLE_STATUSES = [RunPlannerStatus.DISPATCHED, *CLOSED_STATUSES]
+
 router = APIRouter(prefix="/run-planner", tags=["Run Planner"])
 
 MANAGER_ROLES = [UserRole.ADMIN, UserRole.STORE_MANAGER]
@@ -129,10 +133,11 @@ def list_run_plans(
             query = query.filter(RunPlanner.dispatch_location_id == user_loc.id)
             stats_query = stats_query.filter(RunPlanner.dispatch_location_id == user_loc.id)
     elif current_user.role == UserRole.DRIVER:
-        # A run reaches the driver only once dispatch has released it.
+        # A run reaches the driver only once dispatch has released it, and
+        # stays visible after it closes so the app can show the outcome.
         query = query.filter(
             RunPlanner.driver_id == current_user.id,
-            RunPlanner.status == RunPlannerStatus.DISPATCHED,
+            RunPlanner.status.in_(DRIVER_VISIBLE_STATUSES),
         )
         stats_query = stats_query.filter(RunPlanner.driver_id == current_user.id)
 
@@ -150,7 +155,7 @@ def list_run_plans(
             RunPlanner.status == RunPlannerStatus.READY_TO_DISPATCH
         ).count(),
         completed_today=stats_query.filter(
-            RunPlanner.status == RunPlannerStatus.DISPATCHED,
+            RunPlanner.status.in_(CLOSED_STATUSES),
             RunPlanner.dispatch_date == today,
         ).count(),
     )
@@ -260,7 +265,7 @@ def get_run_plan(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Drivers can only access their own run plan",
             )
-        if run_plan.status != RunPlannerStatus.DISPATCHED:
+        if run_plan.status not in DRIVER_VISIBLE_STATUSES:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="This run has not been dispatched yet",

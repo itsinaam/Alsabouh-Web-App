@@ -13,6 +13,9 @@ from app.models.vehicle import Vehicle
 class RunPlannerStatus(str, Enum):
 	DISPATCHED = "Dispatched"
 	READY_TO_DISPATCH = "Ready to Dispatch"
+	# Reached once the driver has closed out every stop on the run.
+	DELIVERED = "Delivered"
+	EXCEPTIONS = "Completed with Exceptions"
 
 
 class RunPlanner(Base):
