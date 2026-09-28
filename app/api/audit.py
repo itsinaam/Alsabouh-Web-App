@@ -51,11 +51,11 @@ def _run_matches_search(run: RunPlanner, search: Optional[str]) -> bool:
     vehicle = run.commercial_vehicle
     searchable_values = [
         str(run.id),
-        vehicle.internal_fleet_code,
-        vehicle.make_chassis_model,
-        vehicle.commercial_plate_number,
-        *(gdn.site_name for gdn in run.gdns),
-        *(gdn.gdn_reference for gdn in run.gdns),
+        vehicle.internal_fleet_code if vehicle else None,
+        vehicle.make_chassis_model if vehicle else None,
+        vehicle.commercial_plate_number if vehicle else None,
+        *(gdn.site_name for gdn in run.gdns if gdn.site_name),
+        *(gdn.gdn_reference for gdn in run.gdns if gdn.gdn_reference),
     ]
     return any(term in str(value).lower() for value in searchable_values if value)
 
@@ -64,9 +64,20 @@ def _to_audit_response(run: RunPlanner, driver: Optional[User]) -> AuditRunRespo
     assigned_gdns = list(run.gdns)
     route_sites = list(dict.fromkeys(gdn.site_name for gdn in assigned_gdns if gdn.site_name))
     payload_dispatched = sum(gdn.weight or 0 for gdn in assigned_gdns)
-    capacity = run.commercial_vehicle.gross_payload_capacity
+    capacity = run.commercial_vehicle.gross_payload_capacity if run.commercial_vehicle else None
     utilization = round(payload_dispatched / capacity * 100, 2) if capacity else None
     is_completed = run.status == RunPlannerStatus.DISPATCHED
+
+    # Calculate real POD photos count
+    pod_photos = 0
+    for gdn in assigned_gdns:
+        if gdn.image_groups and isinstance(gdn.image_groups, list):
+            for grp in gdn.image_groups:
+                if isinstance(grp, dict) and isinstance(grp.get("images"), list):
+                    pod_photos += len(grp["images"])
+
+    # Calculate digital signatures count
+    digital_sigs = sum(1 for gdn in assigned_gdns if "delivered" in (gdn.status or "").lower())
 
     return AuditRunResponse(
         run_id=run.id,
@@ -83,6 +94,10 @@ def _to_audit_response(run: RunPlanner, driver: Optional[User]) -> AuditRunRespo
         payload_capacity=capacity,
         payload_utilization_percent=utilization,
         assigned_gdns=assigned_gdns,
+        pod_photos_count=pod_photos,
+        digital_signatures_count=digital_sigs,
+        pod_audit_status="Verified" if (is_completed and pod_photos > 0) else ("Pending Upload" if not is_completed else "Not Available"),
+        audit_status="Audit Completed" if is_completed else "Pending Final Sign-off",
         created_at=run.created_at,
         updated_at=run.updated_at,
     )
@@ -96,7 +111,7 @@ def _load_runs(db: Session) -> list[RunPlanner]:
             joinedload(RunPlanner.dispatch_location),
             selectinload(RunPlanner.gdns),
         )
-        .order_by(RunPlanner.dispatch_date.desc(), RunPlanner.planned_departure_time.desc())
+        .order_by(RunPlanner.dispatch_date.desc(), RunPlanner.planned_departure_time.desc(), RunPlanner.id.desc())
         .all()
     )
 
@@ -128,12 +143,12 @@ def list_audit_details(
         runs = [run for run in runs if run.dispatch_date <= end_date]
     if status_filter and status_filter.lower() not in {"all", ""}:
         selected_status = status_filter.strip().lower()
-        if selected_status == "completed":
+        if selected_status in {"completed", "completed & sealed", "dispatched"}:
             runs = [run for run in runs if run.status == RunPlannerStatus.DISPATCHED]
-        elif selected_status == "pending":
+        elif selected_status in {"pending", "ready to dispatch", "ready"}:
             runs = [run for run in runs if run.status == RunPlannerStatus.READY_TO_DISPATCH]
         else:
-            runs = [run for run in runs if run.status.value.lower() == selected_status]
+            runs = [run for run in runs if run.status.value.lower() == selected_status or selected_status in run.status.value.lower()]
     runs = [run for run in runs if _run_matches_search(run, search)]
 
     drivers = _load_drivers(db, runs)

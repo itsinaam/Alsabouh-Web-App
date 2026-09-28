@@ -1,6 +1,7 @@
 from fastapi import APIRouter
 from app.api.auth import router as auth_router
 from app.api.audit import router as audit_router
+from app.api.dashboard import router as dashboard_router
 from app.api.gdn import router as gdn_router
 from app.api.location import router as location_router
 from app.api.run_planner import router as run_planner_router
@@ -16,5 +17,6 @@ api_router.include_router(vehicle_router)
 api_router.include_router(gdn_router)
 api_router.include_router(run_planner_router)
 api_router.include_router(audit_router)
+api_router.include_router(dashboard_router)
 
 
