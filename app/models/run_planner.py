@@ -1,6 +1,6 @@
 from datetime import date, datetime, time
 from enum import Enum
-
+from typing import Optional
 from sqlalchemy import Date, DateTime, ForeignKey, Integer, Time, func
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -27,6 +27,9 @@ class RunPlanner(Base):
 	)
 	driver_id: Mapped[int] = mapped_column(
 		ForeignKey("users.id"), nullable=False, index=True
+	)
+	created_by_user_id: Mapped[Optional[int]] = mapped_column(
+		ForeignKey("users.id"), nullable=True, index=True
 	)
 	dispatch_date: Mapped[date] = mapped_column(Date, nullable=False, index=True)
 	planned_departure_time: Mapped[time] = mapped_column(Time, nullable=False)

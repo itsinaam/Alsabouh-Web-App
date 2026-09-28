@@ -35,6 +35,7 @@ def _validate_assignments(
     commercial_vehicle_id: int,
     dispatch_location_id: int,
     driver_id: int,
+    current_user: Optional[User] = None,
 ) -> None:
     if not db.query(Vehicle.id).filter(Vehicle.id == commercial_vehicle_id).first():
         raise HTTPException(status_code=400, detail="Commercial vehicle not found")
@@ -44,6 +45,31 @@ def _validate_assignments(
         User.id == driver_id, User.role == UserRole.DRIVER, User.is_active.is_(True)
     ).first():
         raise HTTPException(status_code=400, detail="Active driver not found")
+    if current_user and current_user.role == UserRole.STORE_MANAGER:
+        if not db.query(Vehicle.id).filter(
+            Vehicle.id == commercial_vehicle_id,
+            Vehicle.created_by_user_id == current_user.id,
+        ).first():
+            raise HTTPException(status_code=404, detail="Vehicle not found")
+        if not db.query(User.id).filter(
+            User.id == driver_id,
+            User.created_by_user_id == current_user.id,
+        ).first():
+            raise HTTPException(status_code=404, detail="Driver not found")
+
+
+def _check_run_plan_location(current_user: User, db: Session, run_plan: RunPlanner) -> Optional[Location]:
+    if current_user.role == UserRole.STORE_MANAGER and run_plan.created_by_user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Run plan not found")
+    if current_user.role not in {UserRole.ADMIN, UserRole.STORE_MANAGER}:
+        return None
+    user_loc = resolve_user_location(current_user, db)
+    if user_loc and run_plan.dispatch_location_id != user_loc.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You can only access run plans from your selected location",
+        )
+    return user_loc
 
 
 @router.post(
@@ -58,7 +84,7 @@ def create_run_plan(
     current_user: User = Depends(require_roles(MANAGER_ROLES)),
 ):
     data = run_in.model_dump()
-    if current_user.role == UserRole.STORE_MANAGER:
+    if current_user.role in {UserRole.ADMIN, UserRole.STORE_MANAGER}:
         user_loc = resolve_user_location(current_user, db)
         if user_loc:
             data["dispatch_location_id"] = user_loc.id
@@ -68,7 +94,10 @@ def create_run_plan(
         data["commercial_vehicle_id"],
         data["dispatch_location_id"],
         data["driver_id"],
+        current_user,
     )
+    if current_user.role == UserRole.STORE_MANAGER:
+        data["created_by_user_id"] = current_user.id
     run_plan = RunPlanner(**data)
     db.add(run_plan)
     db.commit()
@@ -92,6 +121,9 @@ def list_run_plans(
     stats_query = db.query(RunPlanner.id)
 
     if current_user.role == UserRole.STORE_MANAGER:
+        query = query.filter(RunPlanner.created_by_user_id == current_user.id)
+        stats_query = stats_query.filter(RunPlanner.created_by_user_id == current_user.id)
+    elif current_user.role == UserRole.ADMIN:
         user_loc = resolve_user_location(current_user, db)
         if user_loc:
             query = query.filter(RunPlanner.dispatch_location_id == user_loc.id)
@@ -136,16 +168,14 @@ def assign_gdn(
     run_plan = db.query(RunPlanner).filter(RunPlanner.id == run_plan_id).first()
     if not run_plan:
         raise HTTPException(status_code=404, detail="Run plan not found")
-    if current_user.role == UserRole.STORE_MANAGER:
-        user_loc = resolve_user_location(current_user, db)
-        if user_loc and run_plan.dispatch_location_id != user_loc.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Store managers can only manage run plans from their assigned location",
-            )
+    user_loc = _check_run_plan_location(current_user, db, run_plan)
     gdn = db.query(GDN).filter(GDN.id == gdn_id).first()
     if not gdn:
         raise HTTPException(status_code=404, detail="GDN not found")
+    if current_user.role == UserRole.STORE_MANAGER and gdn.created_by_user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="GDN not found")
+    if user_loc and gdn.location_id is not None and gdn.location_id != user_loc.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="GDN belongs to another location")
     if gdn.run_planner_id:
         raise HTTPException(status_code=409, detail="GDN is already assigned to a run plan")
 
@@ -186,13 +216,18 @@ def remove_gdn(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(MANAGER_ROLES)),
 ):
-    gdn = db.query(GDN).filter(GDN.id == gdn_id).first()
+    gdn_query = db.query(GDN).filter(GDN.id == gdn_id)
+    if current_user.role == UserRole.STORE_MANAGER:
+        gdn_query = gdn_query.filter(GDN.created_by_user_id == current_user.id)
+    gdn = gdn_query.first()
     if not gdn:
         raise HTTPException(status_code=404, detail="GDN not found")
-    if current_user.role == UserRole.STORE_MANAGER and gdn.run_planner_id:
+    user_loc = resolve_user_location(current_user, db)
+    if user_loc and gdn.location_id is not None and gdn.location_id != user_loc.id:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="GDN belongs to another location")
+    if user_loc and gdn.run_planner_id:
         run_plan = db.query(RunPlanner).filter(RunPlanner.id == gdn.run_planner_id).first()
         if run_plan:
-            user_loc = resolve_user_location(current_user, db)
             if user_loc and run_plan.dispatch_location_id != user_loc.id:
                 raise HTTPException(
                     status_code=status.HTTP_403_FORBIDDEN,
@@ -214,14 +249,8 @@ def get_run_plan(
     run_plan = db.query(RunPlanner).filter(RunPlanner.id == run_plan_id).first()
     if not run_plan:
         raise HTTPException(status_code=404, detail="Run plan not found")
-    if current_user.role == UserRole.STORE_MANAGER:
-        user_loc = resolve_user_location(current_user, db)
-        if user_loc and run_plan.dispatch_location_id != user_loc.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Store managers can only access run plans from their assigned location",
-            )
-    elif current_user.role == UserRole.DRIVER:
+    _check_run_plan_location(current_user, db, run_plan)
+    if current_user.role == UserRole.DRIVER:
         if run_plan.driver_id != current_user.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
@@ -242,14 +271,10 @@ def update_run_plan(
         raise HTTPException(status_code=404, detail="Run plan not found")
 
     data = run_in.model_dump(exclude_unset=True)
-    if current_user.role == UserRole.STORE_MANAGER:
+    if current_user.role in {UserRole.ADMIN, UserRole.STORE_MANAGER}:
         user_loc = resolve_user_location(current_user, db)
         if user_loc:
-            if run_plan.dispatch_location_id != user_loc.id:
-                raise HTTPException(
-                    status_code=status.HTTP_403_FORBIDDEN,
-                    detail="Store managers can only update run plans from their assigned location",
-                )
+            _check_run_plan_location(current_user, db, run_plan)
             if "dispatch_location_id" in data:
                 data["dispatch_location_id"] = user_loc.id
 
@@ -270,6 +295,7 @@ def update_run_plan(
         data.get("commercial_vehicle_id", run_plan.commercial_vehicle_id),
         data.get("dispatch_location_id", run_plan.dispatch_location_id),
         data.get("driver_id", run_plan.driver_id),
+        current_user,
     )
     for key, value in data.items():
         setattr(run_plan, key, value)
@@ -287,12 +313,6 @@ def delete_run_plan(
     run_plan = db.query(RunPlanner).filter(RunPlanner.id == run_plan_id).first()
     if not run_plan:
         raise HTTPException(status_code=404, detail="Run plan not found")
-    if current_user.role == UserRole.STORE_MANAGER:
-        user_loc = resolve_user_location(current_user, db)
-        if user_loc and run_plan.dispatch_location_id != user_loc.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Store managers can only delete run plans from their assigned location",
-            )
+    _check_run_plan_location(current_user, db, run_plan)
     db.delete(run_plan)
-    db.commit()
+    db.commit()

@@ -35,6 +35,19 @@ def _validate_assignments(db: Session, depot_id: Optional[int], driver_id: Optio
 		raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Active driver not found")
 
 
+def _vehicle_query(db: Session, current_user: User):
+	query = db.query(Vehicle)
+	if current_user.role == UserRole.DRIVER:
+		return query.filter(Vehicle.designated_primary_driver == current_user.id)
+	if current_user.role == UserRole.STORE_MANAGER:
+		return query.filter(Vehicle.created_by_user_id == current_user.id)
+	if current_user.role == UserRole.ADMIN:
+		user_loc = resolve_user_location(current_user, db)
+		if user_loc:
+			query = query.filter(Vehicle.assigned_home_depot == user_loc.id)
+	return query
+
+
 async def _upload_documents(files: Optional[List[UploadFile]], vehicle_ref: str) -> List[str]:
 	urls: List[str] = []
 	for upload in files or []:
@@ -55,13 +68,16 @@ async def create_vehicle(
 	db: Session = Depends(get_db),
 	current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
 ):
-	if current_user.role == UserRole.STORE_MANAGER:
+	if current_user.role in {UserRole.ADMIN, UserRole.STORE_MANAGER}:
 		user_loc = resolve_user_location(current_user, db)
-		if user_loc and not vehicle_in.assigned_home_depot:
+		if user_loc:
 			vehicle_in.assigned_home_depot = user_loc.id
 
 	_validate_assignments(db, vehicle_in.assigned_home_depot, vehicle_in.designated_primary_driver)
-	vehicle = Vehicle(**vehicle_in.model_dump())
+	vehicle_data = vehicle_in.model_dump()
+	if current_user.role == UserRole.STORE_MANAGER:
+		vehicle_data["created_by_user_id"] = current_user.id
+	vehicle = Vehicle(**vehicle_data)
 	db.add(vehicle)
 	try:
 		db.flush()
@@ -100,7 +116,7 @@ def list_vehicles(
 	db: Session = Depends(get_db),
 	current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER, UserRole.DRIVER])),
 ):
-	all_vehicles = db.query(Vehicle)
+	all_vehicles = _vehicle_query(db, current_user)
 	counts = {
 		"total": all_vehicles.count(),
 		"assigned": all_vehicles.filter(
@@ -112,13 +128,7 @@ def list_vehicles(
 		"under_maintenance": all_vehicles.filter(Vehicle.status.ilike("%maintenance%")).count(),
 	}
 
-	query = db.query(Vehicle)
-	if current_user.role == UserRole.STORE_MANAGER:
-		user_loc = resolve_user_location(current_user, db)
-		if user_loc:
-			query = query.filter(
-				or_(Vehicle.assigned_home_depot == user_loc.id, Vehicle.assigned_home_depot.is_(None))
-			)
+	query = all_vehicles
 
 	if search:
 		term = f"%{search.strip()}%"
@@ -156,7 +166,7 @@ def get_vehicle(
 	db: Session = Depends(get_db),
 	current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER, UserRole.DRIVER])),
 ):
-	vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
+	vehicle = _vehicle_query(db, current_user).filter(Vehicle.id == vehicle_id).first()
 	if not vehicle:
 		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
 	driver = None
@@ -175,19 +185,19 @@ async def update_vehicle(
 	db: Session = Depends(get_db),
 	current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
 ):
-	vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
+	vehicle = _vehicle_query(db, current_user).filter(Vehicle.id == vehicle_id).first()
 	if not vehicle:
 		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
 
-	if current_user.role == UserRole.STORE_MANAGER:
+	data = vehicle_in.model_dump(exclude_unset=True)
+	if current_user.role in {UserRole.ADMIN, UserRole.STORE_MANAGER}:
 		user_loc = resolve_user_location(current_user, db)
-		if user_loc and vehicle.assigned_home_depot and vehicle.assigned_home_depot != user_loc.id:
+		if user_loc and data.get("assigned_home_depot", vehicle.assigned_home_depot) != user_loc.id:
 			raise HTTPException(
 				status_code=status.HTTP_403_FORBIDDEN,
-				detail="Store managers can only update vehicles assigned to their depot",
+				detail="You can only update vehicles assigned to your selected location",
 			)
 
-	data = vehicle_in.model_dump(exclude_unset=True)
 	_validate_assignments(
 		db,
 		data.get("assigned_home_depot", vehicle.assigned_home_depot),
@@ -212,17 +222,9 @@ def delete_vehicle(
 	db: Session = Depends(get_db),
 	current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
 ):
-	vehicle = db.query(Vehicle).filter(Vehicle.id == vehicle_id).first()
+	vehicle = _vehicle_query(db, current_user).filter(Vehicle.id == vehicle_id).first()
 	if not vehicle:
 		raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Vehicle not found")
-
-	if current_user.role == UserRole.STORE_MANAGER:
-		user_loc = resolve_user_location(current_user, db)
-		if user_loc and vehicle.assigned_home_depot and vehicle.assigned_home_depot != user_loc.id:
-			raise HTTPException(
-				status_code=status.HTTP_403_FORBIDDEN,
-				detail="Store managers can only delete vehicles assigned to their depot",
-			)
 
 	db.delete(vehicle)
 	db.commit()

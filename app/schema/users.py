@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Optional
 from fastapi import Form
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 
 class DriverRegisterRequest(BaseModel):
@@ -12,7 +12,6 @@ class DriverRegisterRequest(BaseModel):
     full_name: str
     email: EmailStr
     phone_number: str
-    role: str 
     emirates_id: Optional[str] = None
     nationality: Optional[str] = None
     alternate_emergency_contact: Optional[str] = None
@@ -22,7 +21,7 @@ class DriverRegisterRequest(BaseModel):
     licence_expiry_date: Optional[date] = None
     issuing_authority: Optional[str] = None
     medical_fitness: Optional[str] = "Fit to Drive"
-    primary_hub: Optional[str] = None
+    primary_hub: Optional[int] = Field(None, gt=0)
     shift_schedule: Optional[str] = "Morning"
     initial_vehicle_assignment: Optional[str] = None
     active_duty: bool = True
@@ -34,7 +33,6 @@ class DriverRegisterRequest(BaseModel):
         full_name: str = Form(..., description="Full Legal Name as per National ID"),
         email: EmailStr = Form(..., description="Driver Email (credentials will be sent here)"),
         phone_number: str = Form(..., description="Primary Mobile / WhatsApp Number"),
-        role: str = Form(..., description="Roles: Driver, Store Team, Sales Team"),
         emirates_id: Optional[str] = Form(None, description="National ID / Emirates ID"),
         nationality: Optional[str] = Form(None),
         alternate_emergency_contact: Optional[str] = Form(None),
@@ -44,7 +42,7 @@ class DriverRegisterRequest(BaseModel):
         licence_expiry_date: Optional[date] = Form(None),
         issuing_authority: Optional[str] = Form(None),
         medical_fitness: Optional[str] = Form("Fit to Drive"),
-        primary_hub: Optional[str] = Form(None, description="Assigned Store / Hub"),
+        primary_hub: Optional[int] = Form(None, gt=0, description="Location ID"),
         shift_schedule: Optional[str] = Form("Morning"),
         initial_vehicle_assignment: Optional[str] = Form(None),
         active_duty: bool = Form(True),
@@ -54,7 +52,6 @@ class DriverRegisterRequest(BaseModel):
             full_name=full_name,
             email=email,
             phone_number=phone_number,
-            role=role,
             emirates_id=emirates_id,
             nationality=nationality,
             alternate_emergency_contact=alternate_emergency_contact,
@@ -81,10 +78,10 @@ class StoreManagerRegisterRequest(BaseModel):
     employee_id: Optional[str] = None
     phone_number: str
     email: EmailStr
+    location_id: int = Field(..., gt=0)
     assigned_warehouse: Optional[str] = None
     responsibility: Optional[str] = None
     status: Optional[str] = "active"
-    role: str = "STORE_MANAGER"
 
 
 class StoreManagerResponse(BaseModel):
@@ -95,6 +92,7 @@ class StoreManagerResponse(BaseModel):
     phone_number: Optional[str] = None
     role: str
     is_active: bool
+    location_id: Optional[int] = None
     assigned_warehouse: Optional[str] = None
     responsibility: Optional[str] = None
     status: Optional[str] = None
@@ -112,9 +110,9 @@ class StoreManagerUpdate(BaseModel):
     phone_number: Optional[str] = None
     email: Optional[EmailStr] = None
     assigned_warehouse: Optional[str] = None
+    location_id: Optional[int] = Field(None, gt=0)
     responsibility: Optional[str] = None
     status: Optional[str] = None
-    role: Optional[str] = None
     is_active: Optional[bool] = None
 
 
@@ -146,7 +144,7 @@ class DriverResponse(BaseModel):
     medical_fitness_card: Optional[str] = None
 
     # Operational fields
-    primary_hub: Optional[str] = None
+    primary_hub: Optional[int] = Field(None, gt=0)
     shift_schedule: Optional[str] = None
     initial_vehicle_assignment: Optional[str] = None
     active_duty: Optional[bool] = None
@@ -203,7 +201,7 @@ class DriverUpdate(BaseModel):
         licence_expiry_date: Optional[date] = Form(None),
         issuing_authority: Optional[str] = Form(None),
         medical_fitness: Optional[str] = Form(None),
-        primary_hub: Optional[str] = Form(None),
+        primary_hub: Optional[int] = Form(None, gt=0),
         shift_schedule: Optional[str] = Form(None),
         initial_vehicle_assignment: Optional[str] = Form(None),
         active_duty: Optional[bool] = Form(None),
@@ -247,6 +245,7 @@ class UserDetailResponse(BaseModel):
     phone_number: Optional[str] = None
     role: str
     is_active: bool
+    location_id: Optional[int] = None
     status: Optional[str] = None
 
     # Profile photo

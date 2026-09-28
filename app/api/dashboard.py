@@ -144,9 +144,10 @@ def get_store_manager_dashboard(
 ):
     today = date.today()
     one_hour_ago = datetime.now() - timedelta(hours=1)
+    manager_owner_id = current_user.id if current_user.role == UserRole.STORE_MANAGER else None
 
-    # Automatically scope to Store Manager assigned location
-    if current_user.role == UserRole.STORE_MANAGER:
+    # Use the assigned location for Store Managers and Admins with an active location.
+    if current_user.role in {UserRole.ADMIN, UserRole.STORE_MANAGER}:
         user_loc = resolve_user_location(current_user, db)
         if user_loc:
             hub_id = user_loc.id
@@ -172,11 +173,13 @@ def get_store_manager_dashboard(
     # 2. Base Query with Optional Hub Filter
     # -------------------------------------------------------------------------
     base_gdn_query = db.query(GDN).outerjoin(RunPlanner, GDN.run_planner_id == RunPlanner.id)
+    if manager_owner_id is not None:
+        base_gdn_query = base_gdn_query.filter(GDN.created_by_user_id == manager_owner_id)
     if hub_id is not None:
         base_gdn_query = base_gdn_query.filter(
             or_(
-                RunPlanner.dispatch_location_id == hub_id,
-                GDN.run_planner_id.is_(None),
+                GDN.location_id == hub_id,
+                and_(GDN.location_id.is_(None), RunPlanner.dispatch_location_id == hub_id),
             )
         )
 
@@ -200,13 +203,10 @@ def get_store_manager_dashboard(
 
     # C) FLEET UTILIZATION
     vehicle_query = db.query(Vehicle)
-    if hub_id is not None:
-        vehicle_query = vehicle_query.filter(
-            or_(
-                Vehicle.assigned_home_depot == hub_id,
-                Vehicle.assigned_home_depot.is_(None),
-            )
-        )
+    if manager_owner_id is not None:
+        vehicle_query = vehicle_query.filter(Vehicle.created_by_user_id == manager_owner_id)
+    elif hub_id is not None:
+        vehicle_query = vehicle_query.filter(Vehicle.assigned_home_depot == hub_id)
     total_vehicles = vehicle_query.count() or 1
 
     active_vehicles_query = (
@@ -215,7 +215,12 @@ def get_store_manager_dashboard(
         .join(GDN, GDN.run_planner_id == RunPlanner.id)
         .filter(active_condition)
     )
-    if hub_id is not None:
+    if manager_owner_id is not None:
+        active_vehicles_query = active_vehicles_query.filter(
+            RunPlanner.created_by_user_id == manager_owner_id,
+            GDN.created_by_user_id == manager_owner_id,
+        )
+    elif hub_id is not None:
         active_vehicles_query = active_vehicles_query.filter(RunPlanner.dispatch_location_id == hub_id)
     active_fleet_count = active_vehicles_query.count()
     active_fleet_count = min(active_fleet_count, total_vehicles)
@@ -296,10 +301,12 @@ def get_store_manager_dashboard(
     if hub_id is not None:
         table_query = table_query.filter(
             or_(
-                RunPlanner.dispatch_location_id == hub_id,
-                GDN.run_planner_id.is_(None),
+                GDN.location_id == hub_id,
+                and_(GDN.location_id.is_(None), RunPlanner.dispatch_location_id == hub_id),
             )
         )
+    if manager_owner_id is not None:
+        table_query = table_query.filter(GDN.created_by_user_id == manager_owner_id)
 
     if search and isinstance(search, str) and search.strip():
         term = f"%{search.strip()}%"
@@ -380,7 +387,15 @@ def get_store_manager_dashboard(
         )
     )
 
-    if hub_id is not None:
+    if manager_owner_id is not None:
+        run_plans_query = run_plans_query.filter(RunPlanner.created_by_user_id == manager_owner_id)
+        driver_ids_with_runs = (
+            db.query(RunPlanner.driver_id)
+            .filter(RunPlanner.created_by_user_id == manager_owner_id)
+            .distinct()
+        )
+        active_drivers = active_drivers_query.filter(User.id.in_(driver_ids_with_runs)).all()
+    elif hub_id is not None:
         run_plans_query = run_plans_query.filter(RunPlanner.dispatch_location_id == hub_id)
         driver_ids_with_runs = (
             db.query(RunPlanner.driver_id)
@@ -389,7 +404,11 @@ def get_store_manager_dashboard(
         )
         hub_obj = db.query(Location).filter(Location.id == hub_id).first()
         hub_name = hub_obj.hub_name if hub_obj else None
-        hub_driver_filters = [User.id.in_(driver_ids_with_runs), User.primary_hub == str(hub_id)]
+        hub_driver_filters = [
+            User.id.in_(driver_ids_with_runs),
+            User.location_id == hub_id,
+            User.primary_hub == str(hub_id),
+        ]
         if hub_name:
             hub_driver_filters.append(User.primary_hub.ilike(f"%{hub_name}%"))
         active_drivers = active_drivers_query.filter(or_(*hub_driver_filters)).all()
@@ -469,13 +488,15 @@ def get_store_manager_dashboard(
     # 7. Top Client Accounts (Bulk Optimized)
     # -------------------------------------------------------------------------
     client_gdns_query = db.query(GDN).filter(GDN.customer_name.isnot(None), GDN.customer_name != "")
-    if hub_id is not None:
+    if manager_owner_id is not None:
+        client_gdns_query = client_gdns_query.filter(GDN.created_by_user_id == manager_owner_id)
+    elif hub_id is not None:
         client_gdns_query = client_gdns_query.outerjoin(
             RunPlanner, GDN.run_planner_id == RunPlanner.id
         ).filter(
             or_(
-                RunPlanner.dispatch_location_id == hub_id,
-                GDN.run_planner_id.is_(None),
+                GDN.location_id == hub_id,
+                and_(GDN.location_id.is_(None), RunPlanner.dispatch_location_id == hub_id),
             )
         )
     all_client_gdns = client_gdns_query.all()

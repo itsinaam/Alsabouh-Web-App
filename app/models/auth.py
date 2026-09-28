@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from typing import Optional
 
-from sqlalchemy import String, Boolean, Date, DateTime, func
+from sqlalchemy import String, Boolean, Date, DateTime, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy import Enum as SQLEnum
 
@@ -17,7 +17,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255),nullable=False)
     employee_id: Mapped[Optional[str]] = mapped_column(String(100),unique=True, index=True, nullable=True)
     email: Mapped[Optional[str]] = mapped_column(String(255),unique=True,index=True, nullable=True)
-    phone_number: Mapped[Optional[str]] = mapped_column(String(50),unique=True,index=True, nullable=True)
+    phone_number: Mapped[Optional[str]] = mapped_column(String(50), unique=False, index=True, nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255),nullable=False)
     role: Mapped[UserRole] = mapped_column(SQLEnum(UserRole,name="user_role_enum",native_enum=False),default=UserRole.DRIVER,nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean,default=True,nullable=False)
@@ -114,6 +114,16 @@ class User(Base):
     status: Mapped[Optional[str]] = mapped_column(
         String(100),
         nullable=True,
+    )
+
+    location_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("location.id"),
+        nullable=True,
+    )
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"),
+        nullable=True,
+        index=True,
     )
 
     # =========================
