@@ -16,9 +16,30 @@ from app.schema.users import (
 from app.services.email_service import email_service
 from app.services.users_service import users_service
 from app.utils.constants import UserRole
+from app.utils.location_helper import resolve_user_location
 from app.utils.security import get_current_user, require_roles
 
 router = APIRouter(prefix="/user", tags=["Users Management"])
+
+
+def _ensure_user_location(current_user: User, target_user: User, db: Session) -> None:
+    if current_user.role not in {UserRole.ADMIN, UserRole.STORE_MANAGER}:
+        return
+    user_loc = resolve_user_location(current_user, db)
+    if not user_loc:
+        return
+    target_location_id = target_user.location_id
+    if target_location_id is None:
+        assignment = (
+            target_user.assigned_warehouse
+            if target_user.role == UserRole.STORE_MANAGER
+            else target_user.primary_hub
+        )
+        if assignment:
+            target_loc = resolve_user_location(target_user, db)
+            target_location_id = target_loc.id if target_loc else None
+    if target_location_id != user_loc.id:
+        raise HTTPException(status_code=404, detail="User not found")
 
 
 # =====================================================================
@@ -43,6 +64,9 @@ def register_store_manager(
     - Password is auto-generated and hashed.
     - Dispatches unified welcome email with login credentials.
     """
+    user_loc = resolve_user_location(current_user, db)
+    if user_loc and manager_data.location_id != user_loc.id:
+        raise HTTPException(status_code=403, detail="Store managers can only be created in your selected location")
     manager, generated_password = users_service.create_store_manager(
         db=db,
         manager_in=manager_data,
@@ -61,14 +85,14 @@ def register_store_manager(
 
 
 # =====================================================================
-# 2. DRIVER REGISTRATION (Admin Only)
+# 2. DRIVER REGISTRATION (Admin and Store Manager)
 # =====================================================================
 
 @router.post(
     "/driver/register",
     response_model=DriverResponse,
     status_code=status.HTTP_201_CREATED,
-    summary="Register New Driver with Document Uploads (Admin Only)"
+    summary="Register New Driver with Document Uploads"
 )
 async def add_driver(
     background_tasks: BackgroundTasks,
@@ -77,16 +101,33 @@ async def add_driver(
     license_back_copy: Optional[UploadFile] = File(None, description="Back side of driving license"),
     medical_fitness_card: Optional[UploadFile] = File(None, description="Medical fitness certificate/card"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN])),
+    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
 ):
     """
-    Registers a new Driver record with file uploads to Supabase storage. Accessible only by Admin.
+    Registers a new Driver record with file uploads to Supabase storage.
     - Password is auto-generated and hashed.
     - Dispatches unified welcome email with login credentials.
     """
+    if current_user.role == UserRole.STORE_MANAGER:
+        user_loc = resolve_user_location(current_user, db)
+        if not user_loc:
+            raise HTTPException(status_code=409, detail="Your assigned location no longer exists")
+        if driver_data.primary_hub is not None and driver_data.primary_hub != user_loc.id:
+            raise HTTPException(status_code=403, detail="You can only register drivers in your assigned location")
+        driver_data.primary_hub = user_loc.id
+    else:
+        user_loc = resolve_user_location(current_user, db)
+        if driver_data.primary_hub is None:
+            raise HTTPException(status_code=422, detail="primary_hub Location ID is required")
+        if user_loc and driver_data.primary_hub != user_loc.id:
+            raise HTTPException(status_code=403, detail="Drivers can only be registered in your selected location")
+
     driver, generated_password = await users_service.create_driver_with_files(
         db=db,
         driver_in=driver_data,
+        created_by_user_id=(
+            current_user.id if current_user.role == UserRole.STORE_MANAGER else None
+        ),
         license_front_copy=license_front_copy,
         license_back_copy=license_back_copy,
         medical_fitness_card=medical_fitness_card,
@@ -128,6 +169,7 @@ def list_users(
     - Role filters: 'all', 'driver', 'store-manager', 'admin'
     - Search: across all main identity fields
     """
+    user_loc = resolve_user_location(current_user, db)
     users, total = users_service.list_users(
         db=db,
         skip=skip,
@@ -135,6 +177,10 @@ def list_users(
         role_filter=role,
         status_filter=status,
         search=search,
+        location_id=user_loc.id if user_loc and current_user.role == UserRole.ADMIN else None,
+        created_by_user_id=(
+            current_user.id if current_user.role == UserRole.STORE_MANAGER else None
+        ),
     )
     return {
         "total": total,
@@ -159,9 +205,18 @@ def get_user(
     current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
 ):
     """Retrieve full details of a specific user by ID."""
-    user = users_service.get_user_by_id(db=db, user_id=user_id)
+    user_loc = resolve_user_location(current_user, db)
+    user = users_service.get_user_by_id(
+        db=db,
+        user_id=user_id,
+        location_id=user_loc.id if user_loc and current_user.role == UserRole.ADMIN else None,
+        created_by_user_id=(
+            current_user.id if current_user.role == UserRole.STORE_MANAGER else None
+        ),
+    )
     if not user:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
+    _ensure_user_location(current_user, user, db)
     return user
 
 
@@ -184,6 +239,13 @@ async def patch_driver(
     current_user: User = Depends(require_roles([UserRole.ADMIN])),
 ):
     """Partially update driver fields, documents, shift schedule, or status via Form-Data."""
+    driver = db.query(User).filter(User.id == user_id, User.role == UserRole.DRIVER).first()
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    _ensure_user_location(current_user, driver, db)
+    user_loc = resolve_user_location(current_user, db)
+    if user_loc and driver_update.primary_hub is not None and driver_update.primary_hub != user_loc.id:
+        raise HTTPException(status_code=403, detail="Drivers can only be assigned within your selected location")
     return await users_service.patch_driver(
         db=db,
         user_id=user_id,
@@ -210,6 +272,13 @@ def patch_store_manager(
     current_user: User = Depends(require_roles([UserRole.ADMIN])),
 ):
     """Partially update store manager warehouse, responsibility, status, or contact details."""
+    manager = db.query(User).filter(User.id == user_id, User.role == UserRole.STORE_MANAGER).first()
+    if not manager:
+        raise HTTPException(status_code=404, detail="Store Manager not found")
+    _ensure_user_location(current_user, manager, db)
+    user_loc = resolve_user_location(current_user, db)
+    if user_loc and manager_update.location_id is not None and manager_update.location_id != user_loc.id:
+        raise HTTPException(status_code=403, detail="Store managers can only be assigned within your selected location")
     return users_service.patch_store_manager(db=db, user_id=user_id, manager_update=manager_update)
 
 
@@ -233,6 +302,10 @@ def delete_user(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="You cannot delete your own admin account.",
         )
+    target_user = db.query(User).filter(User.id == user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    _ensure_user_location(current_user, target_user, db)
     users_service.delete_user(db=db, user_id=user_id)
     return {
         "status": "success",
@@ -241,13 +314,17 @@ def delete_user(
     }
 
 
-def check_user_profile_permission(current_user: User, target_user_id: int):
+def check_user_profile_permission(current_user: User, target_user_id: int, db: Session):
     """Ensures caller is either an Admin or modifying their own profile picture."""
     if current_user.role != UserRole.ADMIN and current_user.id != target_user_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You are only authorized to modify your own profile picture.",
         )
+    target_user = db.query(User).filter(User.id == target_user_id).first()
+    if not target_user:
+        raise HTTPException(status_code=404, detail="User not found")
+    _ensure_user_location(current_user, target_user, db)
 
 
 # =====================================================================
@@ -268,7 +345,7 @@ async def upload_profile_picture(
     - Role can be specified via path, query parameter, or form-data.
     - Accessible by Admin for any user, or by the user themselves.
     """
-    check_user_profile_permission(current_user, user_id)
+    check_user_profile_permission(current_user, user_id, db)
 
     user = await users_service.update_profile_picture(
         db=db,
@@ -297,7 +374,7 @@ def remove_profile_picture(
     - Role can be specified via path or query parameter.
     - Accessible by Admin for any user, or by the user themselves.
     """
-    check_user_profile_permission(current_user, user_id)
+    check_user_profile_permission(current_user, user_id, db)
     user = users_service.remove_profile_picture(
         db=db,
         user_id=user_id,

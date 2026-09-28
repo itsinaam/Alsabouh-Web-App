@@ -26,6 +26,9 @@ class Vehicle(Base):
     # Depot & Driver Assignment
     assigned_home_depot: Mapped[Optional[int]] = mapped_column(ForeignKey("location.id"), nullable=True, index=True)
     designated_primary_driver: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"), nullable=True, index=True)
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("users.id"), nullable=True, index=True
+    )
     initial_operational_status:  Mapped[Optional[bool]] = mapped_column(Boolean, default=True, nullable=False)
 
     # Timestamps

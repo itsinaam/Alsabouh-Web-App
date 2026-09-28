@@ -8,12 +8,14 @@ from app.utils.constants import UserRole
 
 def resolve_user_location(user: Optional[User], db: Session) -> Optional[Location]:
     """
-    Resolves the operational Hub/Location for a user (Store Manager or Driver).
-    Supports numeric ID, exact hub_name, partial hub_name, token search, and fallback.
-    Admins return None (representing system-wide global access).
+    Resolves the user's assigned Hub/Location, including Admins with a selected location.
+    Admins without a location remain system-wide and return None.
     """
     if not user:
         return None
+
+    if user.location_id is not None:
+        return db.query(Location).filter(Location.id == user.location_id).first()
 
     if user.role == UserRole.ADMIN:
         return None

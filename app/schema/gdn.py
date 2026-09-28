@@ -106,6 +106,7 @@ class GDNUpdate(BaseModel):
 
 class GDNResponse(GDNBase):
     id: int
+    location_id: Optional[int] = None
     run_planner_id: Optional[int] = None
     latitude: Optional[float] = None
     longitude: Optional[float] = None

@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.config.settings import settings
 from app.db.session import get_db
 from app.models.auth import User
+from app.models.location import Location
 from app.schema.auth import (
     ChangePasswordRequest,
     ForgotPasswordRequest,
@@ -64,7 +65,11 @@ from app.utils.location_helper import resolve_user_location
 
 
 def _build_user_response(user: User, db: Session) -> UserResponse:
-    loc = resolve_user_location(user, db)
+    loc = (
+        db.query(Location).filter(Location.id == user.location_id).first()
+        if user.location_id
+        else resolve_user_location(user, db)
+    )
     loc_name = loc.hub_name if loc else (user.assigned_warehouse or user.primary_hub)
     loc_id = loc.id if loc else None
 
@@ -101,24 +106,26 @@ def update_current_user_profile(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    if not profile_in.model_dump(exclude_unset=True):
+    updates = profile_in.model_dump(exclude_unset=True)
+    if not updates:
         raise HTTPException(status_code=422, detail="At least one profile field is required")
-    if profile_in.phone_number is not None:
-        existing_user = db.query(User).filter(
-            User.phone_number == profile_in.phone_number,
-            User.id != current_user.id,
-        ).first()
-        if existing_user:
-            raise HTTPException(status_code=409, detail="Phone number is already in use")
 
-    for field, value in profile_in.model_dump(exclude_unset=True).items():
+    if "location_id" in updates:
+        if current_user.role != UserRole.ADMIN:
+            raise HTTPException(status_code=403, detail="Only admins can update their location")
+        location_id = updates.pop("location_id")
+        if location_id is not None and not db.query(Location.id).filter(Location.id == location_id).first():
+            raise HTTPException(status_code=404, detail="Location not found")
+        current_user.location_id = location_id
+
+    for field, value in updates.items():
         setattr(current_user, field, value.strip() if isinstance(value, str) else value)
     try:
         db.commit()
         db.refresh(current_user)
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise HTTPException(status_code=409, detail="Phone number is already in use")
+        raise HTTPException(status_code=409, detail="A user with these details already exists") from exc
     return _build_user_response(current_user, db)
 
 

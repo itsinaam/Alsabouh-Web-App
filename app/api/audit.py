@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.db.session import get_db
@@ -132,6 +132,8 @@ def _load_runs(db: Session, current_user: Optional[User] = None) -> list[RunPlan
     )
     if current_user:
         if current_user.role == UserRole.STORE_MANAGER:
+            query = query.filter(RunPlanner.created_by_user_id == current_user.id)
+        elif current_user.role == UserRole.ADMIN:
             user_loc = resolve_user_location(current_user, db)
             if user_loc:
                 query = query.filter(RunPlanner.dispatch_location_id == user_loc.id)
@@ -218,7 +220,9 @@ def get_audit_details(
     if not run:
         raise HTTPException(status_code=404, detail="Run audit not found")
 
-    if current_user.role == UserRole.STORE_MANAGER:
+    if current_user.role == UserRole.STORE_MANAGER and run.created_by_user_id != current_user.id:
+        raise HTTPException(status_code=404, detail="Run audit not found")
+    if current_user.role == UserRole.ADMIN:
         user_loc = resolve_user_location(current_user, db)
         if user_loc and run.dispatch_location_id != user_loc.id:
             raise HTTPException(

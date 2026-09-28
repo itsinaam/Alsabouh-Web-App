@@ -11,6 +11,10 @@ class GDN(Base):
 	__tablename__ = "gdn"
 
 	id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True, autoincrement=True)
+	location_id: Mapped[Optional[int]] = mapped_column(ForeignKey("location.id"), nullable=True, index=True)
+	created_by_user_id: Mapped[Optional[int]] = mapped_column(
+		ForeignKey("users.id"), nullable=True, index=True
+	)
 
 	# Invoice details
 	customer_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)

@@ -7,6 +7,7 @@ import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, Response, UploadFile, status
+from sqlalchemy import and_, or_
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
@@ -20,6 +21,7 @@ from app.models.run_planner import RunPlanner
 from app.schema.gdn import GDNCreate, GDNListResponse, GDNResponse, GDNStats, GDNUpdate
 from app.services.storage import storage_service
 from app.utils.constants import UserRole
+from app.utils.location_helper import resolve_user_location
 from app.utils.security import require_roles
 
 router = APIRouter(prefix="/gdn", tags=["Invoice & GDN"])
@@ -115,8 +117,24 @@ def _filtered_gdn_query(
     date_range: Optional[str],
     from_date: Optional[date],
     to_date: Optional[date],
+    current_user: User,
 ):
     query = db.query(GDN)
+    if current_user.role == UserRole.DRIVER:
+        query = query.join(RunPlanner, GDN.run_planner_id == RunPlanner.id).filter(
+            RunPlanner.driver_id == current_user.id
+        )
+    elif current_user.role == UserRole.STORE_MANAGER:
+        query = query.filter(GDN.created_by_user_id == current_user.id)
+    else:
+        user_loc = resolve_user_location(current_user, db)
+        if user_loc:
+            query = query.outerjoin(RunPlanner, GDN.run_planner_id == RunPlanner.id).filter(
+                or_(
+                    GDN.location_id == user_loc.id,
+                    and_(GDN.location_id.is_(None), RunPlanner.dispatch_location_id == user_loc.id),
+                )
+            )
     if search:
         term = f"%{search.strip()}%"
         query = query.filter(
@@ -202,6 +220,9 @@ async def create_gdn(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(GDN_ROLES)),
 ):
+    user_loc = resolve_user_location(current_user, db)
+    if not user_loc:
+        raise HTTPException(status_code=409, detail="Your account must be assigned to a location")
     try:
         gdn_in = GDNCreate.model_validate({
             "customer_name": customer_name,
@@ -224,6 +245,8 @@ async def create_gdn(
     latitude, longitude = await run_in_threadpool(_geocode_site, gdn_in.site_name)
     gdn = GDN(
         **gdn_in.model_dump(exclude={"image_groups"}),
+        location_id=user_loc.id,
+        created_by_user_id=current_user.id,
         image_groups=uploaded_groups,
         latitude=latitude,
         longitude=longitude,
@@ -264,7 +287,7 @@ def list_gdns(
     current_user: User = Depends(require_roles(GDN_UPDATE_ROLES)),
 ):
     query = _filtered_gdn_query(
-        db, search, payment_status, status_filter, assign, date_range, from_date, to_date
+        db, search, payment_status, status_filter, assign, date_range, from_date, to_date, current_user
     )
 
     total = query.count()
@@ -295,7 +318,7 @@ def export_gdns(
     current_user: User = Depends(require_roles(GDN_UPDATE_ROLES)),
 ):
     query = _filtered_gdn_query(
-        db, search, payment_status, status_filter, assign, date_range, from_date, to_date
+        db, search, payment_status, status_filter, assign, date_range, from_date, to_date, current_user
     )
     output = io.StringIO(newline="")
     writer = csv.writer(output)
@@ -330,7 +353,9 @@ def get_gdn(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(GDN_UPDATE_ROLES)),
 ):
-    gdn = db.query(GDN).filter(GDN.id == gdn_id).first()
+    gdn = _filtered_gdn_query(
+        db, None, None, None, None, "all", None, None, current_user
+    ).filter(GDN.id == gdn_id).first()
     if not gdn:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="GDN not found")
     return gdn
@@ -368,7 +393,9 @@ async def update_gdn(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(GDN_UPDATE_ROLES)),
 ):
-    gdn = db.query(GDN).filter(GDN.id == gdn_id).first()
+    gdn = _filtered_gdn_query(
+        db, None, None, None, None, "all", None, None, current_user
+    ).filter(GDN.id == gdn_id).first()
     if not gdn:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="GDN not found")
 
@@ -447,7 +474,9 @@ def delete_gdn(
     db: Session = Depends(get_db),
     current_user: User = Depends(require_roles(GDN_ROLES)),
 ):
-    gdn = db.query(GDN).filter(GDN.id == gdn_id).first()
+    gdn = _filtered_gdn_query(
+        db, None, None, None, None, "all", None, None, current_user
+    ).filter(GDN.id == gdn_id).first()
     if not gdn:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="GDN not found")
 

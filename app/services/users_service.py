@@ -6,6 +6,7 @@ from fastapi import HTTPException, UploadFile, status
 from sqlalchemy import or_
 from sqlalchemy.orm import Session
 from app.models.auth import User
+from app.models.location import Location
 from app.schema.users import (
     DriverRegisterRequest,
     DriverUpdate,
@@ -52,6 +53,7 @@ class UsersService:
     async def create_driver_with_files(
         db: Session,
         driver_in: DriverRegisterRequest,
+        created_by_user_id: Optional[int] = None,
         license_front_copy: Optional[UploadFile] = None,
         license_back_copy: Optional[UploadFile] = None,
         medical_fitness_card: Optional[UploadFile] = None,
@@ -77,12 +79,15 @@ class UsersService:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="A user with this Email, Phone Number, Emirates ID, or License Number already exists.",
             )
+        location = db.query(Location).filter(Location.id == driver_in.primary_hub).first()
+        if not location:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
 
         # 2. Auto-generate password and employee ID
         generated_password = generate_driver_password()
         hashed_password = auth_service.hash_password(generated_password)
         auto_employee_id = f"DRV-{uuid.uuid4().hex[:6].upper()}"
-        assigned_role = parse_user_role(driver_in.role, default_role=UserRole.DRIVER)
+        assigned_role = UserRole.DRIVER
 
         # 3. Create User record
         driver_user = User(
@@ -102,7 +107,9 @@ class UsersService:
             licence_expiry_date=driver_in.licence_expiry_date,
             issuing_authority=driver_in.issuing_authority,
             medical_fitness=driver_in.medical_fitness,
-            primary_hub=driver_in.primary_hub,
+            primary_hub=str(location.id),
+            location_id=location.id,
+            created_by_user_id=created_by_user_id,
             shift_schedule=driver_in.shift_schedule,
             initial_vehicle_assignment=driver_in.initial_vehicle_assignment,
             active_duty=driver_in.active_duty,
@@ -161,7 +168,19 @@ class UsersService:
 
         update_data = {k: v for k, v in driver_update.model_dump().items() if v is not None}
         if "role" in update_data and update_data["role"]:
-            update_data["role"] = parse_user_role(update_data["role"], default_role=driver.role)
+            if parse_user_role(update_data["role"], default_role=driver.role) != UserRole.DRIVER:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Driver role cannot be changed through this endpoint",
+                )
+            update_data.pop("role")
+
+        if "primary_hub" in update_data:
+            location = db.query(Location).filter(Location.id == update_data["primary_hub"]).first()
+            if not location:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
+            update_data["primary_hub"] = str(location.id)
+            update_data["location_id"] = location.id
 
         for key, value in update_data.items():
             setattr(driver, key, value)
@@ -217,18 +236,22 @@ class UsersService:
         conditions = [
             User.email == manager_in.email
         ]
-       
+        if manager_in.employee_id:
+            conditions.append(User.employee_id == manager_in.employee_id)
+
         existing = db.query(User).filter(or_(*conditions)).first()
         if existing:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="A user with this Email, Phone Number, or Employee ID already exists.",
+                detail="A user with this Email or Employee ID already exists.",
             )
 
         # 2. Auto-generate password
         generated_password = generate_driver_password()
         hashed_password = auth_service.hash_password(generated_password)
-        assigned_role = parse_user_role(manager_in.role, default_role=UserRole.STORE_MANAGER)
+        if not db.query(Location.id).filter(Location.id == manager_in.location_id).first():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
+        assigned_role = UserRole.STORE_MANAGER
 
         # 3. Status to is_active mapping
         is_active = True
@@ -244,6 +267,7 @@ class UsersService:
             hashed_password=hashed_password,
             role=assigned_role,
             is_active=is_active,
+            location_id=manager_in.location_id,
             assigned_warehouse=manager_in.assigned_warehouse,
             responsibility=manager_in.responsibility,
             status=manager_in.status or "Available",
@@ -261,8 +285,11 @@ class UsersService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Store Manager not found")
 
         update_data = manager_update.model_dump(exclude_unset=True)
-        if "role" in update_data and update_data["role"]:
-            update_data["role"] = parse_user_role(update_data["role"], default_role=manager.role)
+        if "location_id" in update_data:
+            if update_data["location_id"] is None or not db.query(Location.id).filter(
+                Location.id == update_data["location_id"]
+            ).first():
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Location not found")
 
         for key, value in update_data.items():
             setattr(manager, key, value)
@@ -283,6 +310,8 @@ class UsersService:
         role_filter: Optional[str] = None,
         status_filter: Optional[str] = None,
         search: Optional[str] = None,
+        location_id: Optional[int] = None,
+        created_by_user_id: Optional[int] = None,
     ) -> Tuple[List[User], int]:
         """
         Unified listing of users supporting:
@@ -291,6 +320,24 @@ class UsersService:
         - Search query across name, email, phone, employee_id, etc.
         """
         query = db.query(User)
+        if created_by_user_id is not None:
+            query = query.filter(
+                User.created_by_user_id == created_by_user_id,
+                User.role == UserRole.DRIVER,
+            )
+        if location_id is not None:
+            location = db.query(Location).filter(Location.id == location_id).first()
+            location_filters = [
+                User.location_id == location_id,
+                User.assigned_warehouse == str(location_id),
+                User.primary_hub == str(location_id),
+            ]
+            if location:
+                location_filters.extend([
+                    User.assigned_warehouse.ilike(location.hub_name),
+                    User.primary_hub.ilike(location.hub_name),
+                ])
+            query = query.filter(or_(*location_filters))
 
         # Role filtering
         if role_filter and role_filter.lower() not in ["all", "all roles", ""]:
@@ -328,8 +375,32 @@ class UsersService:
         return users, total
 
     @staticmethod
-    def get_user_by_id(db: Session, user_id: int) -> Optional[User]:
-        return db.query(User).filter(User.id == user_id).first()
+    def get_user_by_id(
+        db: Session,
+        user_id: int,
+        location_id: Optional[int] = None,
+        created_by_user_id: Optional[int] = None,
+    ) -> Optional[User]:
+        query = db.query(User).filter(User.id == user_id)
+        if created_by_user_id is not None:
+            query = query.filter(
+                User.created_by_user_id == created_by_user_id,
+                User.role == UserRole.DRIVER,
+            )
+        if location_id is not None:
+            location = db.query(Location).filter(Location.id == location_id).first()
+            location_filters = [
+                User.location_id == location_id,
+                User.assigned_warehouse == str(location_id),
+                User.primary_hub == str(location_id),
+            ]
+            if location:
+                location_filters.extend([
+                    User.assigned_warehouse.ilike(location.hub_name),
+                    User.primary_hub.ilike(location.hub_name),
+                ])
+            query = query.filter(or_(*location_filters))
+        return query.first()
 
     @staticmethod
     def delete_user(db: Session, user_id: int) -> User:

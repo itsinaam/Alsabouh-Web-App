@@ -65,6 +65,7 @@ class UserResponse(BaseModel):
 class ProfileUpdateRequest(BaseModel):
     full_name: Optional[str] = Field(None, min_length=1, max_length=255)
     phone_number: Optional[str] = Field(None, min_length=1, max_length=50)
+    location_id: Optional[int] = Field(None, gt=0)
 
 
 class ChangePasswordRequest(BaseModel):

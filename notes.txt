@@ -8,7 +8,7 @@ store-manage
 {
 
  "email" : "howinaam89@gmail.com",
- "password" : "Alsabouh@X9ICuH"
+ "password" : "Alsabouh@PzRUOZ"
 
 }
 
@@ -17,10 +17,8 @@ driver
 {
 
  "email" : "inaamullahrajpoot880@gmail.com"
- "password" : "Alsabouh@Z0kCNq"
+ "password" : "Alsabouh@3doaWF"
 
 }
 
-
-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIyIiwidXNlcl9pZCI6Miwicm9sZSI6IlNUT1JFX01BTkFHRVIiLCJlbWFpbCI6Imhvd2luYWFtODlAZ21haWwuY29tIiwiZXhwIjoxNzkwMzMwOTIxLCJpYXQiOjE3OTAyNDQ1MjF9.hL2GAEjm-EpWhfq11tQJnM8D56F-95blIgaH1YBGaUE
 
