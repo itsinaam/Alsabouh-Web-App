@@ -1,4 +1,4 @@
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 import csv
 import io
 import json
@@ -209,6 +209,11 @@ async def create_gdn(
     loading_dock: Optional[str] = Form(None),
     pallets_count: Optional[int] = Form(None, ge=0),
     transporter_name: Optional[str] = Form(None),
+    gate_passcode: Optional[str] = Form(None),
+    site_contact_name: Optional[str] = Form(None),
+    site_contact_phone: Optional[str] = Form(None),
+    target_gate: Optional[str] = Form(None),
+    height_restriction: Optional[str] = Form(None),
     image_groups: Optional[str] = Form(
         None,
         description='JSON array: [{"title":"Loading Dock Photos","images":["dock_1.jpg"]}]',
@@ -238,6 +243,11 @@ async def create_gdn(
             "loading_dock": loading_dock,
             "pallets_count": pallets_count,
             "transporter_name": transporter_name,
+            "gate_passcode": gate_passcode,
+            "site_contact_name": site_contact_name,
+            "site_contact_phone": site_contact_phone,
+            "target_gate": target_gate,
+            "height_restriction": height_restriction,
         })
     except (json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail="line_items must be valid JSON and all fields must be valid") from exc
@@ -382,6 +392,12 @@ async def update_gdn(
     loading_dock: Optional[str] = Form(None),
     pallets_count: Optional[int] = Form(None, ge=0),
     transporter_name: Optional[str] = Form(None),
+    gate_passcode: Optional[str] = Form(None),
+    site_contact_name: Optional[str] = Form(None),
+    site_contact_phone: Optional[str] = Form(None),
+    target_gate: Optional[str] = Form(None),
+    height_restriction: Optional[str] = Form(None),
+    arrived_at: Optional[datetime] = Form(None),
     image_groups: Optional[str] = Form(
         None,
         description='JSON array: [{"title":"Loading Dock Photos","images":["dock_1.jpg"]}]',
@@ -420,6 +436,11 @@ async def update_gdn(
             "loading_dock": loading_dock,
             "pallets_count": pallets_count,
             "transporter_name": transporter_name,
+            "gate_passcode": gate_passcode,
+            "site_contact_name": site_contact_name,
+            "site_contact_phone": site_contact_phone,
+            "target_gate": target_gate,
+            "height_restriction": height_restriction,
         }
         if any(value is not None for value in driver_fields.values()):
             raise HTTPException(
@@ -448,6 +469,12 @@ async def update_gdn(
             "loading_dock": loading_dock,
             "pallets_count": pallets_count,
             "transporter_name": transporter_name,
+            "gate_passcode": gate_passcode,
+            "site_contact_name": site_contact_name,
+            "site_contact_phone": site_contact_phone,
+            "target_gate": target_gate,
+            "height_restriction": height_restriction,
+            "arrived_at": arrived_at,
         }
         gdn_in = GDNUpdate.model_validate({
             key: value for key, value in update_data.items() if value is not None
@@ -461,6 +488,19 @@ async def update_gdn(
         gdn.latitude, gdn.longitude = await run_in_threadpool(_geocode_site, gdn.site_name)
     if image_groups is not None or images:
         gdn.image_groups = await _upload_image_groups(image_groups, images, gdn.gdn_reference)
+
+    # Stamp the moment the stop was closed out, so the audit trail does not
+    # depend on anyone typing a time.
+    if (
+        status_value is not None
+        and gdn.delivered_at is None
+        and any(
+            term in status_value.lower()
+            for term in ("deliver", "partial", "fail")
+        )
+    ):
+        gdn.delivered_at = datetime.now(timezone.utc)
+
     return _commit_gdn(db, gdn)
 
 

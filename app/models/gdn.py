@@ -41,6 +41,20 @@ class GDN(Base):
 	pallets_count: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 	transporter_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
+	# Site access details the driver needs on arrival.
+	gate_passcode: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+	site_contact_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+	site_contact_phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+	target_gate: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+	height_restriction: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
+	# Stamped by the driver app as the stop progresses.
+	arrived_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+	delivered_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+
+	distance_km: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+	eta_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+
 	created_at: Mapped[datetime] = mapped_column(
 		DateTime(timezone=True), server_default=func.now(), nullable=False
 	)

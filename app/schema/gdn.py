@@ -29,6 +29,20 @@ class GDNBase(BaseModel):
     pallets_count: Optional[int] = Field(None, ge=0)
     transporter_name: Optional[str] = Field(None, max_length=255)
 
+    # Site access details shown to the driver on arrival.
+    gate_passcode: Optional[str] = Field(None, max_length=50)
+    site_contact_name: Optional[str] = Field(None, max_length=255)
+    site_contact_phone: Optional[str] = Field(None, max_length=50)
+    target_gate: Optional[str] = Field(None, max_length=100)
+    height_restriction: Optional[str] = Field(None, max_length=100)
+
+    # Stamped by the driver app; read-only for everyone else in practice.
+    arrived_at: Optional[datetime] = None
+    delivered_at: Optional[datetime] = None
+
+    distance_km: Optional[float] = Field(None, ge=0)
+    eta_minutes: Optional[int] = Field(None, ge=0)
+
     @model_validator(mode="after")
     def validate_line_totals(self):
         for item in self.line_items or []:
@@ -77,6 +91,15 @@ class GDNCreate(GDNBase):
 
 
 class GDNUpdate(BaseModel):
+    gate_passcode: Optional[str] = Field(None, max_length=50)
+    site_contact_name: Optional[str] = Field(None, max_length=255)
+    site_contact_phone: Optional[str] = Field(None, max_length=50)
+    target_gate: Optional[str] = Field(None, max_length=100)
+    height_restriction: Optional[str] = Field(None, max_length=100)
+    arrived_at: Optional[datetime] = None
+    delivered_at: Optional[datetime] = None
+    distance_km: Optional[float] = Field(None, ge=0)
+    eta_minutes: Optional[int] = Field(None, ge=0)
     customer_name: Optional[str] = Field(None, min_length=1, max_length=255)
     site_name: Optional[str] = Field(None, min_length=1, max_length=255)
     materials_description_summary: Optional[str] = Field(None, max_length=1000)

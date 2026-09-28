@@ -1,7 +1,7 @@
 from datetime import date, datetime, time
 from enum import Enum
 from typing import Optional
-from sqlalchemy import Date, DateTime, ForeignKey, Integer, Time, func
+from sqlalchemy import Date, DateTime, ForeignKey, Integer, String, Time, func
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -39,6 +39,10 @@ class RunPlanner(Base):
 		default=RunPlannerStatus.READY_TO_DISPATCH,
 		index=True,
 	)
+	loading_bay: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+	odometer_km: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+	toll_tag: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
 	created_at: Mapped[datetime] = mapped_column(
 		DateTime(timezone=True), server_default=func.now(), nullable=False
 	)
