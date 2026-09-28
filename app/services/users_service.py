@@ -215,12 +215,9 @@ class UsersService:
         """
         # 1. Duplicate checks
         conditions = [
-            User.email == manager_in.email,
-            User.phone_number == manager_in.phone_number,
+            User.email == manager_in.email
         ]
-        if manager_in.employee_id:
-            conditions.append(User.employee_id == manager_in.employee_id)
-
+       
         existing = db.query(User).filter(or_(*conditions)).first()
         if existing:
             raise HTTPException(
