@@ -43,7 +43,7 @@ def list_hubs(
     skip: int = Query(0, ge=0, description="Number of records to skip"),
     limit: int = Query(50, ge=1, le=200, description="Max number of records to return"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(get_current_user),
+    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
 ):
     """
     Lists all Hubs / Locations with optional search, filtering, and system-wide KPI summary metrics.
@@ -103,7 +103,7 @@ def list_hubs(
 
 
 @router.patch("/{id}",response_model=HubResponse,summary="Update a Location (Admin Only)")
-def patch_hub(id: int, hub_in: HubUpdate,db: Session = Depends(get_db), current_user: User = Depends(require_roles([UserRole.ADMIN]))):
+def patch_hub(id: int, hub_in: HubUpdate,db: Session = Depends(get_db), current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER]))):
     """Partially updates specified fields of an existing Hub."""
     hub = db.query(Location).filter(Location.id == id).first()
     if not hub:
@@ -121,7 +121,7 @@ def patch_hub(id: int, hub_in: HubUpdate,db: Session = Depends(get_db), current_
     return hub
 
 @router.delete("/{id}",status_code=status.HTTP_200_OK, summary="Delete a Location (Admin Only)")
-def delete_hub(id: int,db: Session = Depends(get_db),current_user: User = Depends(require_roles([UserRole.ADMIN]))):
+def delete_hub(id: int,db: Session = Depends(get_db),current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER]))):
     """Deletes a Hub by ID. Restricted to Admin."""
     hub = db.query(Location).filter(Location.id == id).first()
     if not hub:
