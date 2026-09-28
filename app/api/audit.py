@@ -69,16 +69,33 @@ def _to_audit_response(run: RunPlanner, driver: Optional[User]) -> AuditRunRespo
     utilization = round(payload_dispatched / capacity * 100, 2) if capacity else None
     is_completed = run.status == RunPlannerStatus.DISPATCHED
 
-    # Calculate real POD photos count
+    # Signatures arrive as their own image group, so split them out of the
+    # photo tally instead of counting every uploaded image as a photo.
     pod_photos = 0
+    digital_sigs = 0
     for gdn in assigned_gdns:
-        if gdn.image_groups and isinstance(gdn.image_groups, list):
-            for grp in gdn.image_groups:
-                if isinstance(grp, dict) and isinstance(grp.get("images"), list):
-                    pod_photos += len(grp["images"])
+        groups = gdn.image_groups if isinstance(gdn.image_groups, list) else []
+        for grp in groups:
+            if not isinstance(grp, dict):
+                continue
+            images = grp.get("images")
+            if not isinstance(images, list):
+                continue
+            if "signature" in str(grp.get("title") or "").lower():
+                digital_sigs += len(images)
+            else:
+                pod_photos += len(images)
 
-    # Calculate digital signatures count
-    digital_sigs = sum(1 for gdn in assigned_gdns if "delivered" in (gdn.status or "").lower())
+    # A stop counts as completed once the driver has closed it out, whatever
+    # the outcome. Dispatching the run does not complete its stops.
+    stops_completed = sum(
+        1
+        for gdn in assigned_gdns
+        if any(
+            term in (gdn.status or "").lower()
+            for term in ("deliver", "partial", "fail")
+        )
+    )
 
     return AuditRunResponse(
         run_id=run.id,
@@ -89,7 +106,7 @@ def _to_audit_response(run: RunPlanner, driver: Optional[User]) -> AuditRunRespo
         driver=AuditDriver.model_validate(driver) if driver else None,
         dispatch_location=AuditLocation.model_validate(run.dispatch_location) if run.dispatch_location else None,
         route_sites=route_sites,
-        stops_completed=len(assigned_gdns) if is_completed else 0,
+        stops_completed=stops_completed,
         total_stops=len(assigned_gdns),
         payload_dispatched=payload_dispatched,
         payload_capacity=capacity,

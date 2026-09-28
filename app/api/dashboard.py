@@ -18,6 +18,7 @@ from app.schema.dashboard import (
     DeliveredTodayMetric,
     DeliveryDetailResponse,
     DriverLeaderboardItem,
+    DriverPerformanceResponse,
     EpodSignatureDetail,
     FleetUtilizationMetric,
     LiveStatusBreakdown,
@@ -842,3 +843,103 @@ def get_store_manager_dashboard(
 #         epod_signature=epod_signature,
 #         manifest_pdf_url=f"/api/gdn/export?search={ref}",
 #     )
+
+
+# -----------------------------------------------------------------------------
+# Driver performance — powers the driver app's performance card.
+# Separate from the store-manager view so that response stays untouched.
+# -----------------------------------------------------------------------------
+DRIVER_DASHBOARD_ROLES = [UserRole.DRIVER, UserRole.ADMIN, UserRole.STORE_MANAGER]
+
+
+def _period_bounds(period: str) -> tuple[Optional[date], Optional[date]]:
+    today = date.today()
+    if period == "this_week":
+        return today - timedelta(days=today.weekday()), today
+    if period == "this_month":
+        return today.replace(day=1), today
+    if period == "all":
+        return None, None
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        detail="period must be this_week, this_month, or all",
+    )
+
+
+@router.get(
+    "/driver",
+    response_model=DriverPerformanceResponse,
+    summary="Get delivery performance summary for a driver",
+    description=(
+        "Stop counts and success rate for one driver over a date window. "
+        "Drivers always receive their own figures; admins and store managers "
+        "must pass driver_id."
+    ),
+)
+def get_driver_performance(
+    period: str = Query("this_week", description="this_week, this_month, or all"),
+    driver_id: Optional[int] = Query(
+        None, description="Driver to report on. Ignored for driver accounts."
+    ),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(require_roles(DRIVER_DASHBOARD_ROLES)),
+):
+    if current_user.role == UserRole.DRIVER:
+        target_id = current_user.id
+    elif driver_id is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            detail="driver_id is required for admin and store manager accounts",
+        )
+    else:
+        target_id = driver_id
+
+    from_date, to_date = _period_bounds(period)
+
+    runs = db.query(RunPlanner).filter(RunPlanner.driver_id == target_id)
+    if from_date is not None:
+        runs = runs.filter(
+            RunPlanner.dispatch_date >= from_date,
+            RunPlanner.dispatch_date <= to_date,
+        )
+    run_rows = runs.all()
+    run_ids = [run.id for run in run_rows]
+    active_days = len({run.dispatch_date for run in run_rows})
+
+    statuses: List[str] = []
+    if run_ids:
+        statuses = [
+            row[0] or ""
+            for row in db.query(GDN.status).filter(GDN.run_planner_id.in_(run_ids)).all()
+        ]
+
+    def _count(keyword: str) -> int:
+        return sum(1 for value in statuses if keyword in value.lower())
+
+    total_stops = len(statuses)
+    delivered = _count("deliver")
+    partial = _count("partial")
+    failed = _count("fail")
+    pending = total_stops - delivered - partial - failed
+
+    driver = db.query(User).filter(User.id == target_id).first()
+    if not driver:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Driver not found"
+        )
+
+    return DriverPerformanceResponse(
+        driver_id=target_id,
+        driver_name=driver.full_name,
+        period=period,
+        from_date=from_date,
+        to_date=to_date,
+        total_stops=total_stops,
+        deliveries_completed=delivered,
+        partial_stops=partial,
+        failed_stops=failed,
+        pending_stops=max(pending, 0),
+        success_rate=round(delivered / total_stops * 100, 1) if total_stops else 0.0,
+        active_days=active_days,
+        avg_per_day=round(delivered / active_days, 1) if active_days else 0.0,
+    )

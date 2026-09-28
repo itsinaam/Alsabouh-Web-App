@@ -129,7 +129,11 @@ def list_run_plans(
             query = query.filter(RunPlanner.dispatch_location_id == user_loc.id)
             stats_query = stats_query.filter(RunPlanner.dispatch_location_id == user_loc.id)
     elif current_user.role == UserRole.DRIVER:
-        query = query.filter(RunPlanner.driver_id == current_user.id)
+        # A run reaches the driver only once dispatch has released it.
+        query = query.filter(
+            RunPlanner.driver_id == current_user.id,
+            RunPlanner.status == RunPlannerStatus.DISPATCHED,
+        )
         stats_query = stats_query.filter(RunPlanner.driver_id == current_user.id)
 
     if status_filter:
@@ -255,6 +259,11 @@ def get_run_plan(
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Drivers can only access their own run plan",
+            )
+        if run_plan.status != RunPlannerStatus.DISPATCHED:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="This run has not been dispatched yet",
             )
     return run_plan
 
