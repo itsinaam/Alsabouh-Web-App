@@ -16,11 +16,13 @@ class SupabaseStorageService:
         self.supabase_url = settings.SUPABASE_URL
         self.supabase_key = settings.SUPABASE_KEY
         self.bucket_name = settings.SUPABASE_BUCKET_NAME
+        self.backup_bucket_name = settings.SUPABASE_BACKUP_BUCKET_NAME
         self.client: Optional[Client] = None
 
         if self.supabase_url and self.supabase_key:
             self.client = create_client(self.supabase_url, self.supabase_key)
             self._ensure_bucket()
+            self._ensure_private_backup_bucket()
 
     def _ensure_bucket(self):
         """Ensures the storage bucket exists with public access enabled."""
@@ -34,6 +36,59 @@ class SupabaseStorageService:
         except Exception as e:
             # If bucket exists or error occurs, log and proceed gracefully
             print(f"[StorageService] Notice during bucket verification: {e}")
+
+    def _ensure_private_backup_bucket(self):
+        if not self.client:
+            return
+        try:
+            buckets = self.client.storage.list_buckets()
+            bucket = next(
+                (item for item in buckets if item.name == self.backup_bucket_name),
+                None,
+            )
+            if bucket is None:
+                self.client.storage.create_bucket(
+                    self.backup_bucket_name,
+                    options={"public": False},
+                )
+            elif getattr(bucket, "public", False):
+                self.client.storage.update_bucket(
+                    self.backup_bucket_name,
+                    {"public": False},
+                )
+        except Exception as e:
+            print(f"[StorageService] Notice during backup bucket verification: {e}")
+
+    def upload_backup_file(self, file_bytes: bytes, destination_path: str) -> str:
+        if not self.client:
+            raise RuntimeError(
+                "Supabase client is not configured. Check SUPABASE_URL and SUPABASE_KEY in .env."
+            )
+
+        self.client.storage.from_(self.backup_bucket_name).upload(
+            path=destination_path,
+            file=file_bytes,
+            file_options={"content-type": "application/json", "upsert": "false"},
+        )
+        return destination_path
+
+    def download_backup_file(self, destination_path: str) -> bytes:
+        if not self.client:
+            raise RuntimeError(
+                "Supabase client is not configured. Check SUPABASE_URL and SUPABASE_KEY in .env."
+            )
+
+        return self.client.storage.from_(self.backup_bucket_name).download(destination_path)
+
+    def delete_backup_file(self, destination_path: str) -> bool:
+        if not self.client:
+            return False
+        try:
+            self.client.storage.from_(self.backup_bucket_name).remove([destination_path])
+            return True
+        except Exception as e:
+            print(f"[StorageService] Error deleting backup {destination_path}: {e}")
+            return False
 
     def upload_file(
         self,
