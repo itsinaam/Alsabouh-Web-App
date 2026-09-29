@@ -48,14 +48,16 @@ def _vehicle_query(db: Session, current_user: User):
 	return query
 
 
-async def _upload_documents(files: Optional[List[UploadFile]], vehicle_ref: str) -> List[str]:
+async def _upload_documents(
+	files: Optional[List[UploadFile]], vehicle_ref: str, folder: str = "mulkiya"
+) -> List[str]:
 	urls: List[str] = []
 	for upload in files or []:
 		if not upload.filename:
 			continue
 		content = await upload.read()
 		extension = upload.filename.rsplit(".", 1)[-1] if "." in upload.filename else "bin"
-		path = f"vehicles/{vehicle_ref}/mulkiya/{uuid.uuid4().hex}.{extension}"
+		path = f"vehicles/{vehicle_ref}/{folder}/{uuid.uuid4().hex}.{extension}"
 		content_type = upload.content_type or mimetypes.guess_type(upload.filename)[0]
 		urls.append(storage_service.upload_file(content, path, content_type))
 	return urls
@@ -65,6 +67,7 @@ async def _upload_documents(files: Optional[List[UploadFile]], vehicle_ref: str)
 async def create_vehicle(
 	vehicle_in: VehicleCreate = Depends(VehicleCreate.as_form),
 	mulkiya_inspection_documents: Optional[List[UploadFile]] = File(None),
+	images: Optional[List[UploadFile]] = File(None),
 	db: Session = Depends(get_db),
 	current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
 ):
@@ -82,6 +85,7 @@ async def create_vehicle(
 	try:
 		db.flush()
 		vehicle.mulkiya_inspection_document = await _upload_documents(mulkiya_inspection_documents, str(vehicle.id))
+		vehicle.images = await _upload_documents(images, str(vehicle.id), "images")
 		db.commit()
 		db.refresh(vehicle)
 		return vehicle
@@ -182,6 +186,7 @@ async def update_vehicle(
 	vehicle_id: int,
 	vehicle_in: VehicleUpdate = Depends(VehicleUpdate.as_form),
 	mulkiya_inspection_documents: Optional[List[UploadFile]] = File(None),
+	images: Optional[List[UploadFile]] = File(None),
 	db: Session = Depends(get_db),
 	current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
 ):
@@ -207,6 +212,8 @@ async def update_vehicle(
 		setattr(vehicle, key, value)
 	if mulkiya_inspection_documents:
 		vehicle.mulkiya_inspection_document = await _upload_documents(mulkiya_inspection_documents, str(vehicle.id))
+	if images:
+		vehicle.images = await _upload_documents(images, str(vehicle.id), "images")
 	try:
 		db.commit()
 		db.refresh(vehicle)

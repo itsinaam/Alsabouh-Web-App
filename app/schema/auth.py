@@ -1,5 +1,5 @@
 from datetime import datetime
-from typing import Optional
+from typing import List, Literal, Optional
 from pydantic import BaseModel, EmailStr, Field
 from app.utils.constants import UserRole
 
@@ -56,6 +56,9 @@ class UserResponse(BaseModel):
     location_id: Optional[int] = None
     location_name: Optional[str] = None
     location: Optional[UserLocationBrief] = None
+    location_scope: Optional[Literal["LOCATION", "ALL"]] = None
+    can_view_all_locations: bool = False
+    available_locations: List[UserLocationBrief] = Field(default_factory=list)
     created_at: datetime
 
     class Config:
@@ -66,6 +69,7 @@ class ProfileUpdateRequest(BaseModel):
     full_name: Optional[str] = Field(None, min_length=1, max_length=255)
     phone_number: Optional[str] = Field(None, min_length=1, max_length=50)
     location_id: Optional[int] = Field(None, gt=0)
+    location_scope: Optional[Literal["LOCATION", "ALL"]] = None
 
 
 class ChangePasswordRequest(BaseModel):

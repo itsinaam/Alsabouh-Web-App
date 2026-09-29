@@ -22,6 +22,7 @@ class Vehicle(Base):
     insurance_provider: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
     insurance_expiry_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
     mulkiya_inspection_document: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
+    images: Mapped[Optional[list[str]]] = mapped_column(JSON, nullable=True)
 
     # Depot & Driver Assignment
     assigned_home_depot: Mapped[Optional[int]] = mapped_column(ForeignKey("location.id"), nullable=True, index=True)

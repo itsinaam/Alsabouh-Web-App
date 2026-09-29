@@ -117,12 +117,12 @@ def patch_hub(
             detail=f"Hub with ID {id} not found",
         )
 
-    if current_user.role in {UserRole.ADMIN, UserRole.STORE_MANAGER}:
+    if current_user.role == UserRole.STORE_MANAGER:
         user_loc = resolve_user_location(current_user, db)
         if user_loc and hub.id != user_loc.id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="You can only update your selected location",
+                detail="Store managers can only update their assigned location",
             )
 
     update_data = hub_in.model_dump(exclude_unset=True)
