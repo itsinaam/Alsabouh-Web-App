@@ -16,6 +16,20 @@ def init_db() -> None:
     """
     print("[InitDB] Creating database tables if they do not exist...")
     Base.metadata.create_all(bind=engine)
+    backup_columns = {
+        column["name"] for column in inspect(engine).get_columns("database_backups")
+    }
+    if "storage_path" not in backup_columns:
+        with engine.begin() as connection:
+            connection.execute(
+                text("ALTER TABLE database_backups ADD COLUMN storage_path VARCHAR(1024)")
+            )
+    vehicle_columns = {
+        column["name"] for column in inspect(engine).get_columns("vehicles")
+    }
+    if "images" not in vehicle_columns:
+        with engine.begin() as connection:
+            connection.execute(text("ALTER TABLE vehicles ADD COLUMN images JSON"))
     db: Session = SessionLocal()
     try:
         admin_email = settings.ADMIN_EMAIL

@@ -2,6 +2,8 @@ from datetime import date, datetime
 from typing import List, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from app.schema.users import DriverResponse
+from app.schema.vehicle import VehicleResponse
 
 
 class GDNLineItem(BaseModel):
@@ -136,6 +138,11 @@ class GDNResponse(GDNBase):
     created_at: datetime
     updated_at: datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+class GDNDetailResponse(GDNResponse):
+    driver: Optional[DriverResponse] = None
+    vehicle: Optional[VehicleResponse] = None
 
 
 class GDNStats(BaseModel):

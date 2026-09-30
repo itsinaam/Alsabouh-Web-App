@@ -18,7 +18,10 @@ from app.db.session import get_db
 from app.models.auth import User
 from app.models.gdn import GDN
 from app.models.run_planner import RunPlanner, RunPlannerStatus
-from app.schema.gdn import GDNCreate, GDNListResponse, GDNResponse, GDNStats, GDNUpdate
+from app.models.vehicle import Vehicle
+from app.schema.gdn import GDNCreate, GDNDetailResponse, GDNListResponse, GDNResponse, GDNStats, GDNUpdate
+from app.schema.users import DriverResponse
+from app.schema.vehicle import VehicleResponse
 from app.services.storage import storage_service
 from app.utils.constants import UserRole
 from app.utils.location_helper import resolve_user_location
@@ -359,7 +362,7 @@ def export_gdns(
 
 @router.get(
     "/{gdn_id}",
-    response_model=GDNResponse,
+    response_model=GDNDetailResponse,
     summary="Get a goods delivery note",
 )
 def get_gdn(
@@ -372,7 +375,16 @@ def get_gdn(
     ).filter(GDN.id == gdn_id).first()
     if not gdn:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="GDN not found")
-    return gdn
+
+    response = GDNDetailResponse.model_validate(gdn)
+    if gdn.assign and gdn.run_planner_id:
+        run_plan = db.query(RunPlanner).filter(RunPlanner.id == gdn.run_planner_id).first()
+        if run_plan:
+            driver = db.query(User).filter(User.id == run_plan.driver_id).first()
+            vehicle = db.query(Vehicle).filter(Vehicle.id == run_plan.commercial_vehicle_id).first()
+            response.driver = DriverResponse.model_validate(driver) if driver else None
+            response.vehicle = VehicleResponse.model_validate(vehicle) if vehicle else None
+    return response
 
 
 

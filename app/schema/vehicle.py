@@ -117,6 +117,7 @@ class VehicleDriverResponse(BaseModel):
 class VehicleResponse(VehicleBase):
 	id: int
 	mulkiya_inspection_document: List[str] = Field(default_factory=list)
+	images: Optional[List[str]] = None
 	driver: Optional[VehicleDriverResponse] = None
 	created_at: datetime
 	updated_at: datetime

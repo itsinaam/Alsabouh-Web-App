@@ -16,6 +16,9 @@ class Settings:
     SUPABASE_URL: str = config("SUPABASE_URL", default="")
     SUPABASE_KEY: str = config("SUPABASE_KEY", default="")
     SUPABASE_BUCKET_NAME: str = config("SUPABASE_BUCKET_NAME", default="alsabouh-storage")
+    SUPABASE_BACKUP_BUCKET_NAME: str = config(
+        "SUPABASE_BACKUP_BUCKET_NAME", default="alsabouh-db-backups"
+    )
 
     # JWT Security settings
     JWT_SECRET_KEY: str = config("JWT_SECRET_KEY", default="super_secret_jwt_alsabouh_key")

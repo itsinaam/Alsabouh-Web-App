@@ -65,6 +65,7 @@ from app.utils.location_helper import resolve_user_location
 
 
 def _build_user_response(user: User, db: Session) -> UserResponse:
+    is_admin = user.role == UserRole.ADMIN
     loc = (
         db.query(Location).filter(Location.id == user.location_id).first()
         if user.location_id
@@ -87,6 +88,13 @@ def _build_user_response(user: User, db: Session) -> UserResponse:
         location_id=loc_id,
         location_name=loc_name,
         location=loc,
+        location_scope=("ALL" if user.location_id is None else "LOCATION") if is_admin else None,
+        can_view_all_locations=is_admin,
+        available_locations=(
+            db.query(Location).order_by(Location.hub_name.asc()).all()
+            if is_admin
+            else []
+        ),
         created_at=user.created_at,
     )
 
@@ -109,6 +117,18 @@ def update_current_user_profile(
     updates = profile_in.model_dump(exclude_unset=True)
     if not updates:
         raise HTTPException(status_code=422, detail="At least one profile field is required")
+
+    if "location_scope" in updates:
+        if current_user.role != UserRole.ADMIN:
+            raise HTTPException(status_code=403, detail="Only admins can change location scope")
+        requested_scope = updates.pop("location_scope")
+        if requested_scope == "ALL":
+            updates["location_id"] = None
+        elif updates.get("location_id", current_user.location_id) is None:
+            raise HTTPException(
+                status_code=422,
+                detail="location_id is required when selecting a specific location",
+            )
 
     if "location_id" in updates:
         if current_user.role != UserRole.ADMIN:

@@ -54,15 +54,16 @@ def custom_openapi():
     )
     schemas = schema.get("components", {}).get("schemas", {}).values()
     for request_schema in schemas:
-        upload_field = request_schema.get("properties", {}).get(
-            "mulkiya_inspection_documents"
-        )
-        if upload_field:
-            for variant in upload_field.get("anyOf", []):
-                items = variant.get("items")
-                if isinstance(items, dict) and items.get("type") == "string":
-                    items["format"] = "binary"
-                    items.pop("contentMediaType", None)
+        properties = request_schema.get("properties", {})
+        for field_name in ("mulkiya_inspection_documents", "images"):
+            upload_field = properties.get(field_name)
+            if upload_field:
+                variants = upload_field.get("anyOf", [upload_field])
+                for variant in variants:
+                    items = variant.get("items")
+                    if isinstance(items, dict) and items.get("type") == "string":
+                        items["format"] = "binary"
+                        items.pop("contentMediaType", None)
 
     app.openapi_schema = schema
     return app.openapi_schema
