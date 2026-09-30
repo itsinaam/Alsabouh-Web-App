@@ -236,7 +236,7 @@ async def patch_driver(
     license_back_copy: Optional[UploadFile] = File(None, description="Optional updated back copy of driving license"),
     medical_fitness_card: Optional[UploadFile] = File(None, description="Optional updated medical fitness certificate/card"),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN])),
+    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
 ):
     """Partially update driver fields, documents, shift schedule, or status via Form-Data."""
     driver = db.query(User).filter(User.id == user_id, User.role == UserRole.DRIVER).first()
@@ -294,7 +294,7 @@ def patch_store_manager(
 def delete_user(
     user_id: int,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles([UserRole.ADMIN])),
+    current_user: User = Depends(require_roles([UserRole.ADMIN, UserRole.STORE_MANAGER])),
 ):
     """Deletes a user account and associated profile by ID."""
     if current_user.id == user_id:
