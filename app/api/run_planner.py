@@ -120,6 +120,7 @@ def list_run_plans(
 ):
     query = db.query(RunPlanner).options(
         selectinload(RunPlanner.commercial_vehicle),
+        selectinload(RunPlanner.dispatch_location),
         selectinload(RunPlanner.gdns),
     )
     stats_query = db.query(RunPlanner.id)

@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.run_planner import RunPlannerStatus
 from app.schema.gdn import GDNResponse
+from app.schema.location import HubResponse
 from app.schema.vehicle import VehicleResponse
 
 
@@ -22,6 +23,9 @@ class RunPlannerCreate(RunPlannerBase):
 
 
 class RunPlannerUpdate(BaseModel):
+    loading_bay: Optional[str] = Field(None, max_length=100)
+    odometer_km: Optional[int] = Field(None, ge=0)
+    toll_tag: Optional[str] = Field(None, max_length=100)
     commercial_vehicle_id: Optional[int] = Field(None, gt=0)
     dispatch_location_id: Optional[int] = Field(None, gt=0)
     driver_id: Optional[int] = Field(None, gt=0)
@@ -34,7 +38,11 @@ class RunPlannerResponse(RunPlannerBase):
     id: int
     created_at: datetime
     updated_at: datetime
+    loading_bay: Optional[str] = None
+    odometer_km: Optional[int] = None
+    toll_tag: Optional[str] = None
     commercial_vehicle: VehicleResponse
+    dispatch_location: Optional[HubResponse] = None
     gdns: list[GDNResponse] = Field(default_factory=list)
 
     model_config = ConfigDict(from_attributes=True)

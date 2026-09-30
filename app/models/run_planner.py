@@ -54,4 +54,7 @@ class RunPlanner(Base):
 	)
 	commercial_vehicle: Mapped["Vehicle"] = relationship("Vehicle")
 	dispatch_location: Mapped["Location"] = relationship("Location")
-	gdns: Mapped[list["GDN"]] = relationship("GDN", back_populates="run_planner")
+	# Ordered so the driver app numbers the stops the same way on every fetch.
+	gdns: Mapped[list["GDN"]] = relationship(
+		"GDN", back_populates="run_planner", order_by="GDN.id"
+	)

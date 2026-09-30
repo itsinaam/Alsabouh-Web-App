@@ -214,6 +214,8 @@ async def create_gdn(
     site_contact_phone: Optional[str] = Form(None),
     target_gate: Optional[str] = Form(None),
     height_restriction: Optional[str] = Form(None),
+    distance_km: Optional[float] = Form(None, ge=0),
+    eta_minutes: Optional[int] = Form(None, ge=0),
     image_groups: Optional[str] = Form(
         None,
         description='JSON array: [{"title":"Loading Dock Photos","images":["dock_1.jpg"]}]',
@@ -248,6 +250,8 @@ async def create_gdn(
             "site_contact_phone": site_contact_phone,
             "target_gate": target_gate,
             "height_restriction": height_restriction,
+            "distance_km": distance_km,
+            "eta_minutes": eta_minutes,
         })
     except (json.JSONDecodeError, ValueError) as exc:
         raise HTTPException(status_code=422, detail="line_items must be valid JSON and all fields must be valid") from exc
@@ -434,6 +438,8 @@ async def update_gdn(
     site_contact_phone: Optional[str] = Form(None),
     target_gate: Optional[str] = Form(None),
     height_restriction: Optional[str] = Form(None),
+    distance_km: Optional[float] = Form(None, ge=0),
+    eta_minutes: Optional[int] = Form(None, ge=0),
     arrived_at: Optional[datetime] = Form(None),
     image_groups: Optional[str] = Form(
         None,
@@ -478,6 +484,8 @@ async def update_gdn(
             "site_contact_phone": site_contact_phone,
             "target_gate": target_gate,
             "height_restriction": height_restriction,
+            "distance_km": distance_km,
+            "eta_minutes": eta_minutes,
         }
         if any(value is not None for value in driver_fields.values()):
             raise HTTPException(
@@ -511,6 +519,8 @@ async def update_gdn(
             "site_contact_phone": site_contact_phone,
             "target_gate": target_gate,
             "height_restriction": height_restriction,
+            "distance_km": distance_km,
+            "eta_minutes": eta_minutes,
             "arrived_at": arrived_at,
         }
         gdn_in = GDNUpdate.model_validate({
